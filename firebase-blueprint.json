@@ -1,0 +1,49 @@
+{
+  "entities": {
+    "Artwork": {
+      "title": "Artwork",
+      "description": "A painting or artwork being tracked.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "description": "Title of the artwork" },
+        "description": { "type": "string", "description": "Description of the artwork" },
+        "status": { "type": "string", "enum": ["in_progress", "completed", "archived"] },
+        "ownerId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "timestamp" },
+        "updatedAt": { "type": "string", "format": "timestamp" }
+      },
+      "required": ["title", "ownerId", "status", "createdAt", "updatedAt"]
+    },
+    "Layer": {
+      "title": "Layer / Photo",
+      "description": "A progress photo of an artwork.",
+      "type": "object",
+      "properties": {
+        "artworkId": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "notes": { "type": "string" },
+        "techniques": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "colorPaletteSuggestions": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "ownerId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "timestamp" }
+      },
+      "required": ["artworkId", "imageUrl", "ownerId", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/artworks/{artworkId}": {
+      "schema": { "$ref": "#/entities/Artwork" },
+      "description": "Artworks created by users."
+    },
+    "/artworks/{artworkId}/layers/{layerId}": {
+      "schema": { "$ref": "#/entities/Layer" },
+      "description": "Progress photos (layers) for a specific artwork."
+    }
+  }
+}

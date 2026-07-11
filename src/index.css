@@ -1,0 +1,12 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand-bg: #FAF9F6;
+  --color-brand-text: #2D2926;
+  --color-brand-border: #E5E2D9;
+  --color-brand-accent: #A16207;
+  --color-brand-muted: #8C887D;
+  --color-brand-surface: #F0EEE6;
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Playfair Display", ui-serif, Georgia, serif;
+}
