@@ -11,43 +11,53 @@ import {
   writeBatch,
 } from 'firebase/firestore';
 import { deleteObject, getDownloadURL, ref, uploadBytes } from 'firebase/storage';
+import { z } from 'zod';
 import { auth, db, storage } from '../firebase';
 import { Artwork, CanvasBounds, Layer, PerspectivePoint } from '../types';
 import { createStorageObjectPath } from './workflow';
 
-function record(value: unknown): Record<string, unknown> {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return {};
-  return value as Record<string, unknown>;
-}
+const errorResponseSchema = z.object({ error: z.string().min(1) }).strict();
+const canvasDetectionResponseSchema = z
+  .object({
+    success: z.literal(true),
+    mode: z.enum(['opencv', 'gemini']),
+    bounds: z
+      .object({
+        ymin: z.number().finite().min(0).max(1),
+        xmin: z.number().finite().min(0).max(1),
+        ymax: z.number().finite().min(0).max(1),
+        xmax: z.number().finite().min(0).max(1),
+        centerX: z.number().finite().min(0).max(1),
+        centerY: z.number().finite().min(0).max(1),
+        width: z.number().finite().positive().max(1),
+        height: z.number().finite().positive().max(1),
+      })
+      .strict()
+      .refine((bounds) => bounds.xmin < bounds.xmax && bounds.ymin < bounds.ymax, {
+        message: 'Canvas bounds must have positive normalized extents.',
+      }),
+  })
+  .strict();
 
-async function readJsonObject(response: Response): Promise<Record<string, unknown>> {
+async function readJson(response: Response): Promise<unknown> {
   const text = await response.text();
   if (!text) throw new Error(`Server returned an empty ${response.status} response.`);
 
-  let parsed: unknown;
   try {
-    parsed = JSON.parse(text);
+    return JSON.parse(text);
   } catch (error) {
     throw new Error(`Server returned invalid JSON with status ${response.status}.`, { cause: error });
   }
-  return record(parsed);
-}
-
-function responseErrorFromData(
-  response: Response,
-  data: Record<string, unknown>,
-  operation: string,
-): Error {
-  const message =
-    typeof data.error === 'string'
-      ? data.error
-      : `${operation} failed with status ${response.status}.`;
-  return new Error(message);
 }
 
 async function responseError(response: Response, operation: string): Promise<Error> {
-  const data = await readJsonObject(response);
-  return responseErrorFromData(response, data, operation);
+  const parsed = errorResponseSchema.safeParse(await readJson(response));
+  if (!parsed.success) {
+    return new Error(`${operation} returned an invalid error response with status ${response.status}.`, {
+      cause: parsed.error,
+    });
+  }
+  return new Error(parsed.data.error);
 }
 
 async function getAuthToken(): Promise<string> {
@@ -288,27 +298,16 @@ export async function detectCanvasBoundsApi(
     headers: { Authorization: `Bearer ${token}` },
     body: formData,
   });
-  const data = await readJsonObject(response);
-  if (!response.ok || data.success !== true) {
-    throw responseErrorFromData(response, data, 'Canvas detection');
-  }
-  if (data.mode !== 'opencv' && data.mode !== 'gemini') {
-    throw new Error('Canvas detection returned an invalid mode.');
-  }
+  if (!response.ok) throw await responseError(response, 'Canvas detection');
 
-  const bounds = record(data.bounds);
-  const { ymin, xmin, ymax, xmax } = bounds;
-  if (
-    typeof ymin !== 'number' ||
-    typeof xmin !== 'number' ||
-    typeof ymax !== 'number' ||
-    typeof xmax !== 'number'
-  ) {
-    throw new Error('Canvas detection returned invalid bounds.');
-  }
-
+  const data = canvasDetectionResponseSchema.parse(await readJson(response));
   return {
-    bounds: { ymin, xmin, ymax, xmax },
+    bounds: {
+      ymin: data.bounds.ymin,
+      xmin: data.bounds.xmin,
+      ymax: data.bounds.ymax,
+      xmax: data.bounds.xmax,
+    },
     mode: data.mode,
   };
 }
