@@ -91,7 +91,7 @@ function parseDataUrl(value: unknown): { buffer: Buffer; mimeType: string } | nu
   if (!match) {
     throw new RequestValidationError('Image data must be a valid base64 data URL.');
   }
-  if (!ACEPTED_IMAGE_TYPES.has(match[1])) {
+  if (!ACCEPTED_IMAGE_TYPES.has(match[1])) {
     throw new RequestValidationError(`Unsupported image content type: ${match[1]}`);
   }
   return { buffer: Buffer.from(match[2], 'base64'), mimeType: match[1] };
