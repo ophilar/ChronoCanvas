@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { useAuth } from '../context/AuthContext';
 import { subscribeToArtworks, createArtwork, deleteArtworkComplete } from '../lib/api';
-import { Artwork } from '../types';
+import type { Artwork } from '../types';
 import { Plus, Loader2, Image as ImageIcon, Palette, Trash2, AlertTriangle } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import toast from 'react-hot-toast';
@@ -91,7 +91,7 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="flex-1 p-6 sm:p-8 md:p-12 animate-in fade-in slide-in-from-bottom-4 duration-500 ease-out max-w-7xl mx-auto w-full space-y-12">
+    <div className="flex-1 p-8 md:p-12 animate-in fade-in slide-in-from-bottom-4 duration-500 ease-out max-w-7xl mx-auto w-full space-y-12">
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-6 pb-6 border-b border-brand-border">
         <div>
           <span className="text-[10px] uppercase tracking-[0.3em] font-bold text-brand-muted block mb-2">Overview</span>
@@ -112,7 +112,7 @@ export default function Dashboard() {
           <button
             type="submit"
             disabled={!newTitle.trim() || isCreating}
-            className="bg-brand-text text-white px-5 py-2 rounded-full text-[10px] uppercase tracking-widest font-bold hover:bg-black disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-colors shadow-sm"
+            className="bg-brand-text text-white px-5 py-2 rounded-full text-[10px] uppercase tracking-widest font-bold hover:bg-black disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-colors shadow-sm cursor-pointer"
           >
             {isCreating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
             <span>Create</span>
@@ -121,7 +121,7 @@ export default function Dashboard() {
       </div>
 
       {artworks.length === 0 ? (
-        <div className="border border-brand-border bg-white p-12 sm:p-16 text-center flex flex-col items-center justify-center">
+        <div className="border border-brand-border bg-white rounded-none p-16 text-center flex flex-col items-center justify-center">
           <div className="w-16 h-16 rounded-full bg-brand-surface text-brand-accent flex items-center justify-center mb-6">
             <ImageIcon className="w-8 h-8" />
           </div>
@@ -133,13 +133,20 @@ export default function Dashboard() {
           {artworks.map((artwork) => (
             <article
               key={artwork.id}
-              className="relative bg-white border border-brand-border shadow-sm hover:shadow-md transition-all duration-300 hover:border-brand-accent/50"
+              className="relative group bg-white border border-brand-border shadow-sm hover:shadow-md transition-all duration-300 hover:border-brand-accent/50"
             >
-              <Link to={`/artwork/${artwork.id}`} className="block p-6 pr-20 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-accent focus-visible:ring-inset">
-                <div className="w-10 h-10 rounded-xl bg-brand-surface flex items-center justify-center text-brand-accent mb-6">
-                  <Palette className="w-5 h-5" />
+              <Link
+                to={`/artwork/${artwork.id}`}
+                className="block p-6 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-accent focus-visible:ring-inset"
+              >
+                <div className="flex justify-between items-center mb-6">
+                  <div className="w-10 h-10 rounded-xl bg-brand-surface flex items-center justify-center text-brand-accent group-hover:scale-110 transition-transform">
+                    <Palette className="w-5 h-5" />
+                  </div>
                 </div>
-                <h2 className="font-serif italic text-2xl truncate font-bold mb-4">{artwork.title}</h2>
+                <div className="flex justify-between items-start mb-4">
+                  <h2 className="font-serif italic text-2xl truncate pr-2 font-bold">{artwork.title}</h2>
+                </div>
                 <div className="flex items-center justify-between gap-3 pt-4 border-t border-brand-border/50">
                   <span className="text-[9px] uppercase tracking-[0.2em] font-bold text-brand-accent bg-brand-accent/5 px-2 py-1 rounded-sm">
                     {artwork.status.replaceAll('_', ' ')}
@@ -156,14 +163,14 @@ export default function Dashboard() {
                     <button
                       type="button"
                       onClick={() => void executeDelete(artwork.id)}
-                      className="px-2.5 py-1 bg-red-600 text-white text-[9px] uppercase tracking-widest font-bold rounded hover:bg-red-700 transition-all"
+                      className="px-2.5 py-1 bg-red-600 text-white text-[9px] uppercase tracking-widest font-bold rounded hover:bg-red-700 transition-all cursor-pointer"
                     >
                       Confirm
                     </button>
                     <button
                       type="button"
                       onClick={() => setConfirmDeleteId(null)}
-                      className="px-2 py-1 bg-gray-100 text-brand-text text-[9px] uppercase tracking-widest font-bold rounded hover:bg-gray-200 transition-colors border border-black/5"
+                      className="px-2 py-1 bg-gray-100 text-brand-text text-[9px] uppercase tracking-widest font-bold rounded hover:bg-gray-200 transition-colors border border-black/5 cursor-pointer"
                     >
                       Cancel
                     </button>
@@ -172,7 +179,7 @@ export default function Dashboard() {
                   <button
                     type="button"
                     onClick={() => setConfirmDeleteId(artwork.id)}
-                    className="p-2 text-brand-muted hover:text-red-600 rounded-lg hover:bg-red-50 transition-colors"
+                    className="p-2 text-brand-muted hover:text-red-600 rounded-lg hover:bg-red-50 transition-colors cursor-pointer"
                     aria-label={`Delete ${artwork.title}`}
                   >
                     <Trash2 className="w-4 h-4" />
