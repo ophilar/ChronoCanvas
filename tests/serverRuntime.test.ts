@@ -16,6 +16,74 @@ import {
   UpstreamServiceError,
 } from '../src/server/httpErrorPolicy';
 import { parseRequiredPort, registerSpaFallback } from '../src/server/runtime';
+import {
+  detectionMethodSchema,
+  geminiBoundsSchema,
+  perspectivePointsSchema,
+} from '../src/server/schemas';
+
+test('server schemas reject missing and malformed values without defaults', () => {
+  assert.equal(detectionMethodSchema.parse('opencv'), 'opencv');
+  assert.equal(detectionMethodSchema.parse('gemini'), 'gemini');
+  assert.throws(() => detectionMethodSchema.parse(undefined));
+  assert.throws(() => detectionMethodSchema.parse('classic'));
+
+  assert.deepEqual(
+    perspectivePointsSchema.parse([
+      { x: 0, y: 0 },
+      { x: 1, y: 0 },
+      { x: 1, y: 1 },
+      { x: 0, y: 1 },
+    ]),
+    [
+      { x: 0, y: 0 },
+      { x: 1, y: 0 },
+      { x: 1, y: 1 },
+      { x: 0, y: 1 },
+    ],
+  );
+  assert.throws(() => perspectivePointsSchema.parse([{ x: 0, y: 0 }]));
+  assert.throws(() => perspectivePointsSchema.parse([
+    { x: 0, y: 0 },
+    { x: 2, y: 0 },
+    { x: 1, y: 1 },
+    { x: 0, y: 1 },
+  ]));
+
+  assert.deepEqual(
+    geminiBoundsSchema.parse({
+      ymin: 0.1,
+      xmin: 0.2,
+      ymax: 0.9,
+      xmax: 0.8,
+      centerX: 0.5,
+      centerY: 0.5,
+      width: 0.6,
+      height: 0.8,
+    }),
+    {
+      ymin: 0.1,
+      xmin: 0.2,
+      ymax: 0.9,
+      xmax: 0.8,
+      centerX: 0.5,
+      centerY: 0.5,
+      width: 0.6,
+      height: 0.8,
+    },
+  );
+  assert.throws(() => geminiBoundsSchema.parse({ ymin: 0, xmin: 0, ymax: 1, xmax: 1 }));
+  assert.throws(() => geminiBoundsSchema.parse({
+    ymin: 0.8,
+    xmin: 0.2,
+    ymax: 0.1,
+    xmax: 0.8,
+    centerX: 0.5,
+    centerY: 0.5,
+    width: 0.6,
+    height: 0.7,
+  }));
+});
 
 test('parseRequiredPort accepts an explicit valid TCP port', () => {
   assert.equal(parseRequiredPort('8080'), 8080);
