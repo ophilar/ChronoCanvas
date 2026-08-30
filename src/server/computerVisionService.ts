@@ -1,17 +1,13 @@
 import cvModule from '@techstark/opencv-js';
 import { createCanvas, loadImage } from 'canvas';
-import { ImageProcessingError, RequestValidationError } from './httpErrorPolicy';
+import createError, { isHttpError } from 'http-errors';
+import type { PerspectivePoint } from './schemas';
 
 export interface CanvasBounds {
   ymin: number;
   xmin: number;
   ymax: number;
   xmax: number;
-}
-
-export interface PerspectivePoint {
-  x: number;
-  y: number;
 }
 
 interface CvDisposable {
@@ -40,10 +36,11 @@ const ALIGNMENT_RANSAC_THRESHOLD = 5;
 
 export function assertImageDimensions(width: number, height: number): void {
   if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) {
-    throw new RequestValidationError('Decoded image dimensions must be positive integers.');
+    throw createError(400, 'Decoded image dimensions must be positive integers.');
   }
   if (width * height > MAX_DECODED_IMAGE_PIXELS) {
-    throw new RequestValidationError(
+    throw createError(
+      400,
       `Decoded image exceeds the ${MAX_DECODED_IMAGE_PIXELS.toLocaleString('en-US')} pixel limit.`,
     );
   }
@@ -67,7 +64,7 @@ class CvResourceScope {
 
 function validatePerspectivePoints(points: PerspectivePoint[]): void {
   if (points.length !== 4) {
-    throw new RequestValidationError('Perspective warping requires exactly 4 points.');
+    throw createError(400, 'Perspective warping requires exactly 4 points.');
   }
 
   for (const point of points) {
@@ -79,7 +76,8 @@ function validatePerspectivePoints(points: PerspectivePoint[]): void {
       point.y < 0 ||
       point.y > 1
     ) {
-      throw new RequestValidationError(
+      throw createError(
+        400,
         'Perspective coordinates must be finite values in the normalized range from 0 to 1.',
       );
     }
@@ -95,6 +93,17 @@ export class ComputerVisionService {
       throw new Error('OpenCV initialization completed without the Mat API.');
     }
     return cv;
+  }
+
+  private async decodeImage(buffer: Buffer) {
+    try {
+      const image = await loadImage(buffer);
+      assertImageDimensions(image.width, image.height);
+      return image;
+    } catch (error) {
+      if (isHttpError(error)) throw error;
+      throw createError(422, 'The uploaded image could not be decoded.', { cause: error });
+    }
   }
 
   async assertReady(): Promise<void> {
@@ -129,8 +138,7 @@ export class ComputerVisionService {
 
   async detectCanvasBounds(buffer: Buffer): Promise<CanvasBounds> {
     const cv = await this.getOpenCv();
-    const image = await loadImage(buffer);
-    assertImageDimensions(image.width, image.height);
+    const image = await this.decodeImage(buffer);
     const canvas = createCanvas(image.width, image.height);
     const context = canvas.getContext('2d');
     context.drawImage(image, 0, 0);
@@ -171,7 +179,7 @@ export class ComputerVisionService {
       }
 
       if (!bounds) {
-        throw new ImageProcessingError('OpenCV could not detect a canvas boundary in this image.');
+        throw createError(422, 'OpenCV could not detect a canvas boundary in this image.');
       }
       return bounds;
     } finally {
@@ -182,8 +190,7 @@ export class ComputerVisionService {
   async warpPerspective(buffer: Buffer, points: PerspectivePoint[]): Promise<Buffer> {
     validatePerspectivePoints(points);
     const cv = await this.getOpenCv();
-    const image = await loadImage(buffer);
-    assertImageDimensions(image.width, image.height);
+    const image = await this.decodeImage(buffer);
     const width = image.width;
     const height = image.height;
 
@@ -196,7 +203,7 @@ export class ComputerVisionService {
       Math.max(Math.hypot(x3 - x0, y3 - y0), Math.hypot(x2 - x1, y2 - y1)),
     );
     if (outputWidth <= 0 || outputHeight <= 0) {
-      throw new ImageProcessingError('Perspective coordinates describe a degenerate quadrilateral.');
+      throw createError(422, 'Perspective coordinates describe a degenerate quadrilateral.');
     }
 
     const canvas = createCanvas(width, height);
@@ -238,10 +245,8 @@ export class ComputerVisionService {
 
   async align(targetBuffer: Buffer, baseBuffer: Buffer): Promise<Buffer> {
     const cv = await this.getOpenCv();
-    const baseImage = await loadImage(baseBuffer);
-    const targetImage = await loadImage(targetBuffer);
-    assertImageDimensions(baseImage.width, baseImage.height);
-    assertImageDimensions(targetImage.width, targetImage.height);
+    const baseImage = await this.decodeImage(baseBuffer);
+    const targetImage = await this.decodeImage(targetBuffer);
 
     const baseCanvas = createCanvas(baseImage.width, baseImage.height);
     const baseContext = baseCanvas.getContext('2d');
@@ -268,9 +273,7 @@ export class ComputerVisionService {
       orb.detectAndCompute(target.gray, scope.track(new cv.Mat()), targetKeypoints, targetDescriptors);
 
       if (baseDescriptors.empty() || targetDescriptors.empty()) {
-        throw new ImageProcessingError(
-          'Alignment failed: no distinctive visual keypoints were found in the images.',
-        );
+        throw createError(422, 'Alignment failed: no distinctive visual keypoints were found in the images.');
       }
 
       const matcher = scope.track(new cv.BFMatcher(cv.NORM_HAMMING, true));
@@ -290,7 +293,8 @@ export class ComputerVisionService {
         }
       }
       if (goodMatches.length < ALIGNMENT_MIN_MATCHES) {
-        throw new ImageProcessingError(
+        throw createError(
+          422,
           'Alignment failed: insufficient matching visual features were found between milestones.',
         );
       }
@@ -314,15 +318,11 @@ export class ComputerVisionService {
         cv.findHomography(sourcePoints, destinationPoints, cv.RANSAC, ALIGNMENT_RANSAC_THRESHOLD),
       );
       if (homography.empty()) {
-        throw new ImageProcessingError(
-          'Alignment failed: a perspective alignment matrix could not be determined.',
-        );
+        throw createError(422, 'Alignment failed: a perspective alignment matrix could not be determined.');
       }
 
       if (!this.isSaneHomography(homography)) {
-        throw new ImageProcessingError(
-          'Alignment failed: the calculated perspective transform is too distorted.',
-        );
+        throw createError(422, 'Alignment failed: the calculated perspective transform is too distorted.');
       }
 
       const aligned = scope.track(new cv.Mat());
