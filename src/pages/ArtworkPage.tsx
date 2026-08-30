@@ -6,19 +6,34 @@ import { useAuth } from '../context/AuthContext';
 import {
   subscribeToLayers,
   createLayer,
+  replaceLayerImage,
   updateLayersOrder,
   deleteLayer,
   deleteArtworkComplete,
-  uploadImageToStorage,
 } from '../lib/api';
+import { createTimelapseTiming } from '../lib/workflow';
 import { Artwork, Layer, WebGPUFilterOptions } from '../types';
 import { ArtworkCanvas } from '../components/artwork/ArtworkCanvas';
 import { MilestonesList } from '../components/artwork/MilestonesList';
 import { TimelapseStudio } from '../components/artwork/TimelapseStudio';
 import { CropModal } from '../components/artwork/CropModal';
-import { Loader2, History, Video } from 'lucide-react';
+import { Loader2, History, Video, AlertTriangle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import heic2any from 'heic2any';
+
+const VIDEO_WIDTH = 1920;
+const VIDEO_HEIGHT = 1080;
+const VIDEO_FPS = 30;
+const VIDEO_BIT_RATE = 6_000_000;
+const VIDEO_MIME_TYPE = 'video/webm;codecs=vp9';
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function sleep(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+}
 
 export default function ArtworkPage() {
   const { id } = useParams<{ id: string }>();
@@ -28,268 +43,302 @@ export default function ArtworkPage() {
   const [artwork, setArtwork] = useState<Artwork | null>(null);
   const [layers, setLayers] = useState<Layer[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null);
-
-  // Studio tabs: milestones history vs timelapse engine
   const [activeTab, setActiveTab] = useState<'milestones' | 'timelapse'>('milestones');
 
-  // Playback & Animation states
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackIndex, setPlaybackIndex] = useState<number | null>(null);
   const [prevPlaybackIndex, setPrevPlaybackIndex] = useState<number | null>(null);
-  const [frameDelay, setFrameDelay] = useState(500); // ms per frame
+  const [frameDelay, setFrameDelay] = useState(500);
   const [transitionEffect, setTransitionEffect] = useState<'fade' | 'cut'>('fade');
   const [loopPlayback, setLoopPlayback] = useState(true);
 
-  // WebGPU Hardware acceleration
   const [enableWebGPU, setEnableWebGPU] = useState(false);
   const [webGpuOptions, setWebGpuOptions] = useState<WebGPUFilterOptions>({
-    brightness: 1.0,
-    contrast: 1.0,
-    saturation: 1.0,
+    brightness: 1,
+    contrast: 1,
+    saturation: 1,
   });
 
-  // Video Export state
   const [generatingVideo, setGeneratingVideo] = useState(false);
-
-  // Upload & Cropping state
   const [uploading, setUploading] = useState(false);
   const [cropModalOpen, setCropModalOpen] = useState(false);
   const [currentCroppingImageSrc, setCurrentCroppingImageSrc] = useState<string | null>(null);
   const [recalculatingLayer, setRecalculatingLayer] = useState<Layer | null>(null);
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [pendingFileIndex, setPendingFileIndex] = useState(0);
+  const currentObjectUrlRef = useRef<string | null>(null);
+  const nextLayerOrderRef = useRef(0);
 
-  // Fetch parent artwork doc
+  const revokeCurrentObjectUrl = useCallback(() => {
+    if (currentObjectUrlRef.current) {
+      URL.revokeObjectURL(currentObjectUrlRef.current);
+      currentObjectUrlRef.current = null;
+    }
+  }, []);
+
+  const showFileInCropper = useCallback(
+    (file: File) => {
+      revokeCurrentObjectUrl();
+      const objectUrl = URL.createObjectURL(file);
+      currentObjectUrlRef.current = objectUrl;
+      setCurrentCroppingImageSrc(objectUrl);
+      setCropModalOpen(true);
+    },
+    [revokeCurrentObjectUrl],
+  );
+
+  const closeCropSession = useCallback(() => {
+    revokeCurrentObjectUrl();
+    setCropModalOpen(false);
+    setCurrentCroppingImageSrc(null);
+    setRecalculatingLayer(null);
+    setPendingFiles([]);
+    setPendingFileIndex(0);
+  }, [revokeCurrentObjectUrl]);
+
+  useEffect(() => closeCropSession, [closeCropSession]);
+
   useEffect(() => {
     if (!id || !user) return;
+    let active = true;
+
     const fetchArtwork = async () => {
+      setLoading(true);
+      setLoadError(null);
       try {
-        const docRef = doc(db, 'artworks', id);
-        const docSnap = await getDoc(docRef);
-        if (docSnap.exists()) {
-          setArtwork({ id: docSnap.id, ...docSnap.data() } as Artwork);
-        } else {
-          toast.error('Artwork project not found');
-          navigate('/dashboard');
+        const docSnap = await getDoc(doc(db, 'artworks', id));
+        if (!active) return;
+        if (!docSnap.exists()) {
+          setLoadError('Artwork project not found.');
+          return;
         }
-      } catch (err: any) {
-        console.error('Fetch artwork error:', err);
-        toast.error(err.message || 'Failed to load artwork');
+        setArtwork({ id: docSnap.id, ...docSnap.data() } as Artwork);
+      } catch (error) {
+        if (!active) return;
+        console.error('Fetch artwork error:', error);
+        setLoadError(errorMessage(error));
       } finally {
-        setLoading(false);
+        if (active) setLoading(false);
       }
     };
-    fetchArtwork();
-  }, [id, user, navigate]);
 
-  // Subscribe to layers subcollection
+    void fetchArtwork();
+    return () => {
+      active = false;
+    };
+  }, [id, user]);
+
   useEffect(() => {
     if (!id || !user) return;
-    const unsubscribe = subscribeToLayers(id, user.uid, (data) => {
-      setLayers(data);
-      // Default to latest layer if none selected
-      if (data.length > 0 && !selectedLayerId) {
-        setSelectedLayerId(data[data.length - 1].id);
-      }
-    });
-    return () => unsubscribe();
-  }, [id, user, selectedLayerId]);
-
-  // Playback timer loop
-  useEffect(() => {
-    let timer: NodeJS.Timeout;
-    if (isPlaying && layers.length > 0) {
-      timer = setInterval(() => {
-        setPlaybackIndex((prev) => {
-          const current = prev !== null ? prev : 0;
-          setPrevPlaybackIndex(current);
-          if (current >= layers.length - 1) {
-            if (!loopPlayback) {
-              setIsPlaying(false);
-              return current;
-            }
-            return 0;
-          }
-          return current + 1;
+    return subscribeToLayers(
+      id,
+      (data) => {
+        setLayers(data);
+        setSelectedLayerId((current) => {
+          if (data.length === 0) return null;
+          if (current && data.some((layer) => layer.id === current)) return current;
+          return data[data.length - 1].id;
         });
-      }, frameDelay);
-    }
-    return () => clearInterval(timer);
+        setPlaybackIndex((current) =>
+          current !== null && current >= data.length ? null : current,
+        );
+      },
+      (error) => {
+        console.error('Layer subscription error:', error);
+        toast.error(`Milestones could not be synchronized: ${error.message}`);
+      },
+    );
+  }, [id, user]);
+
+  useEffect(() => {
+    if (!isPlaying || layers.length === 0) return;
+    const timer = window.setInterval(() => {
+      setPlaybackIndex((previous) => {
+        const current = previous ?? 0;
+        setPrevPlaybackIndex(current);
+        if (current >= layers.length - 1) {
+          if (!loopPlayback) {
+            setIsPlaying(false);
+            return current;
+          }
+          return 0;
+        }
+        return current + 1;
+      });
+    }, frameDelay);
+    return () => window.clearInterval(timer);
   }, [isPlaying, layers.length, frameDelay, loopPlayback]);
 
-  // Toggle play/pause
   const togglePlay = () => {
     if (layers.length < 2) {
       toast.error('Add at least 2 progress milestones to preview timelapse playback.');
       return;
     }
-    if (!isPlaying) {
-      setPlaybackIndex(0);
-      setPrevPlaybackIndex(null);
-      setIsPlaying(true);
-    } else {
+    if (isPlaying) {
       setIsPlaying(false);
+      return;
     }
+    setPlaybackIndex(0);
+    setPrevPlaybackIndex(null);
+    setIsPlaying(true);
   };
 
-  // Step frame forward or backward
   const stepFrame = (direction: -1 | 1) => {
+    if (layers.length === 0) return;
     setIsPlaying(false);
-    const currentIndex =
-      playbackIndex !== null
-        ? playbackIndex
-        : selectedLayerId !== null
-        ? layers.findIndex((l) => l.id === selectedLayerId)
-        : layers.length - 1;
-
-    let nextIndex = currentIndex + direction;
-    if (nextIndex < 0) nextIndex = layers.length - 1;
-    if (nextIndex >= layers.length) nextIndex = 0;
-
+    const selectedIndex = selectedLayerId ? layers.findIndex((layer) => layer.id === selectedLayerId) : -1;
+    const currentIndex = playbackIndex ?? (selectedIndex >= 0 ? selectedIndex : layers.length - 1);
+    const nextIndex = (currentIndex + direction + layers.length) % layers.length;
     setPrevPlaybackIndex(currentIndex);
     setPlaybackIndex(nextIndex);
-    if (layers[nextIndex]) {
-      setSelectedLayerId(layers[nextIndex].id);
-    }
+    setSelectedLayerId(layers[nextIndex].id);
   };
 
-  // Process dropped files for upload & crop
+  const convertHeicFile = async (file: File): Promise<File> => {
+    const isHeic =
+      file.type === 'image/heic' ||
+      file.type === 'image/heif' ||
+      /\.(heic|heif)$/i.test(file.name);
+    if (!isHeic) return file;
+
+    const converted = await heic2any({ blob: file, toType: 'image/jpeg', quality: 0.95 });
+    const convertedBlob = Array.isArray(converted) ? converted[0] : converted;
+    if (!convertedBlob) throw new Error(`HEIC conversion returned no image for ${file.name}`);
+    return new File([convertedBlob], file.name.replace(/\.(heic|heif)$/i, '.jpg'), {
+      type: 'image/jpeg',
+      lastModified: file.lastModified,
+    });
+  };
+
   const handleDropFiles = async (acceptedFiles: File[]) => {
     if (acceptedFiles.length === 0) return;
     setUploading(true);
+    const toastId = toast.loading(`Preparing ${acceptedFiles.length} milestone${acceptedFiles.length === 1 ? '' : 's'}...`);
 
     try {
-      let file = acceptedFiles[0];
+      const convertedFiles: File[] = [];
+      for (const file of acceptedFiles) convertedFiles.push(await convertHeicFile(file));
+      convertedFiles.sort((a, b) => a.lastModified - b.lastModified);
 
-      // Convert Apple HEIC/HEIF images if needed
-      if (
-        file.type === 'image/heic' ||
-        file.type === 'image/heif' ||
-        file.name.toLowerCase().endsWith('.heic') ||
-        file.name.toLowerCase().endsWith('.heif')
-      ) {
-        const toastId = toast.loading('Converting HEIC format...');
-        try {
-          const convertedBlob = (await heic2any({
-            blob: file,
-            toType: 'image/jpeg',
-            quality: 0.95,
-          })) as Blob;
-          file = new File([convertedBlob], file.name.replace(/\.(heic|heif)$/i, '.jpg'), {
-            type: 'image/jpeg',
-          });
-          toast.success('HEIC converted successfully', { id: toastId });
-        } catch (err: any) {
-          console.error('HEIC conversion failed:', err);
-          toast.error('HEIC conversion failed', { id: toastId });
-          setUploading(false);
-          return;
-        }
-      }
-
-      const objectUrl = URL.createObjectURL(file);
-      setCurrentCroppingImageSrc(objectUrl);
+      const highestOrder = layers.reduce((maximum, layer) => Math.max(maximum, layer.order ?? -1), -1);
+      nextLayerOrderRef.current = highestOrder + 1;
+      setPendingFiles(convertedFiles);
+      setPendingFileIndex(0);
       setRecalculatingLayer(null);
-      setCropModalOpen(true);
-    } catch (err: any) {
-      console.error('Drop files error:', err);
-      toast.error(err.message || 'Failed to process photo');
+      showFileInCropper(convertedFiles[0]);
+      toast.success(
+        convertedFiles.length === 1
+          ? 'Milestone ready to frame.'
+          : `${convertedFiles.length} milestones queued in chronological order.`,
+        { id: toastId },
+      );
+    } catch (error) {
+      console.error('Drop files error:', error);
+      closeCropSession();
+      toast.error(errorMessage(error), { id: toastId });
     } finally {
       setUploading(false);
     }
   };
 
-  // Recalculate existing layer's alignment / crop
   const handleRecalculateAlignment = (layer: Layer) => {
+    revokeCurrentObjectUrl();
+    setPendingFiles([]);
+    setPendingFileIndex(0);
     setCurrentCroppingImageSrc(layer.imageUrl);
     setRecalculatingLayer(layer);
     setCropModalOpen(true);
   };
 
-  // Save cropped/aligned image blob to Firebase Storage and Firestore
   const handleSaveCroppedImage = async (croppedBlob: Blob) => {
-    if (!id || !user) return;
-
-    // Upload to Firebase Storage
-    const imageUrl = await uploadImageToStorage(id, croppedBlob);
+    if (!id) throw new Error('Artwork route is missing its identifier.');
 
     if (recalculatingLayer) {
-      // Create new version milestone or update
-      await createLayer(
-        id,
-        imageUrl,
-        recalculatingLayer.notes || 'Realignment adjustment',
-        recalculatingLayer.techniques || [],
-        recalculatingLayer.colorPaletteSuggestions || [],
-        recalculatingLayer.createdAt,
-        recalculatingLayer.order
-      );
-      // Delete old layer image
-      await deleteLayer(id, recalculatingLayer.id, recalculatingLayer.imageUrl);
-    } else {
-      // Append as new milestone
-      const newOrder = layers.length;
-      const newLayerId = await createLayer(
-        id,
-        imageUrl,
-        '',
-        [],
-        [],
-        undefined,
-        newOrder
-      );
-      setSelectedLayerId(newLayerId);
+      await replaceLayerImage(id, recalculatingLayer.id, croppedBlob, recalculatingLayer.imageUrl);
+      setRecalculatingLayer(null);
+      setCropModalOpen(false);
+      setCurrentCroppingImageSrc(null);
+      return;
     }
+
+    const sourceFile = pendingFiles[pendingFileIndex];
+    if (!sourceFile) throw new Error('The milestone upload queue is inconsistent.');
+
+    const createdAt = new Date(sourceFile.lastModified).toISOString();
+    const newLayerId = await createLayer(
+      id,
+      croppedBlob,
+      undefined,
+      [],
+      [],
+      createdAt,
+      nextLayerOrderRef.current,
+    );
+    nextLayerOrderRef.current += 1;
+    setSelectedLayerId(newLayerId);
+
+    const nextIndex = pendingFileIndex + 1;
+    if (nextIndex < pendingFiles.length) {
+      setPendingFileIndex(nextIndex);
+      showFileInCropper(pendingFiles[nextIndex]);
+      return;
+    }
+    closeCropSession();
   };
 
-  // Reorder milestone layers
   const handleMoveLayer = async (index: number, direction: 'up' | 'down') => {
     if (!id) return;
     const targetIndex = direction === 'up' ? index - 1 : index + 1;
     if (targetIndex < 0 || targetIndex >= layers.length) return;
 
-    const newLayers = [...layers];
-    const [moved] = newLayers.splice(index, 1);
-    newLayers.splice(targetIndex, 0, moved);
+    const reorderedLayers = [...layers];
+    const [moved] = reorderedLayers.splice(index, 1);
+    reorderedLayers.splice(targetIndex, 0, moved);
 
-    const updates = newLayers.map((l, idx) => ({ id: l.id, order: idx }));
     try {
-      await updateLayersOrder(id, updates);
+      await updateLayersOrder(
+        id,
+        reorderedLayers.map((layer, order) => ({ id: layer.id, order })),
+      );
       toast.success('Layer order updated');
-    } catch (err: any) {
-      console.error('Move layer error:', err);
-      toast.error('Failed to update layer order');
+    } catch (error) {
+      console.error('Move layer error:', error);
+      toast.error(errorMessage(error));
     }
   };
 
-  // Delete milestone layer
   const handleDeleteLayer = async (layerId: string, imageUrl: string) => {
     if (!id) return;
     try {
       await deleteLayer(id, layerId, imageUrl);
       toast.success('Milestone deleted');
-    } catch (err: any) {
-      console.error('Delete layer error:', err);
-      toast.error('Failed to delete milestone');
+    } catch (error) {
+      console.error('Delete layer error:', error);
+      toast.error(errorMessage(error));
     }
   };
 
-  // Delete entire artwork
   const handleDeleteArtwork = async () => {
     if (!id) return;
     try {
       await deleteArtworkComplete(id);
       toast.success('Artwork deleted');
       navigate('/dashboard');
-    } catch (err: any) {
-      console.error('Delete artwork error:', err);
-      toast.error('Failed to delete artwork');
+    } catch (error) {
+      console.error('Delete artwork error:', error);
+      toast.error(errorMessage(error));
     }
   };
 
-  // Export full timelapse video with MediaRecorder
   const handleExportTimelapse = async () => {
     if (layers.length < 2) {
       toast.error('Upload at least 2 milestones to export a timelapse video.');
+      return;
+    }
+    if (!MediaRecorder.isTypeSupported(VIDEO_MIME_TYPE)) {
+      toast.error(`This browser cannot encode ${VIDEO_MIME_TYPE}.`);
       return;
     }
 
@@ -297,138 +346,134 @@ export default function ArtworkPage() {
     const toastId = toast.loading('Rendering 1080p timelapse frames...');
 
     try {
-      // Preload all milestone images
-      const loadedImages: HTMLImageElement[] = await Promise.all(
+      const loadedImages = await Promise.all(
         layers.map(
-          (l) =>
+          (layer) =>
             new Promise<HTMLImageElement>((resolve, reject) => {
-              const img = new Image();
-              img.crossOrigin = 'anonymous';
-              img.src = l.imageUrl;
-              img.onload = () => resolve(img);
-              img.onerror = () => reject(new Error(`Failed to load frame ${l.id}`));
-            })
-        )
+              const image = new Image();
+              image.crossOrigin = 'anonymous';
+              image.src = layer.imageUrl;
+              image.onload = () => resolve(image);
+              image.onerror = () => reject(new Error(`Failed to load frame ${layer.id}`));
+            }),
+        ),
       );
 
-      const targetWidth = 1920;
-      const targetHeight = 1080;
-
       const exportCanvas = document.createElement('canvas');
-      exportCanvas.width = targetWidth;
-      exportCanvas.height = targetHeight;
-      const ctx = exportCanvas.getContext('2d');
-      if (!ctx) throw new Error('Could not create video export canvas');
+      exportCanvas.width = VIDEO_WIDTH;
+      exportCanvas.height = VIDEO_HEIGHT;
+      const context = exportCanvas.getContext('2d');
+      if (!context) throw new Error('Could not create video export canvas');
 
-      const stream = exportCanvas.captureStream(30);
+      const stream = exportCanvas.captureStream(VIDEO_FPS);
       const recorder = new MediaRecorder(stream, {
-        mimeType: 'video/webm;codecs=vp9',
-        videoBitsPerSecond: 6000000,
+        mimeType: VIDEO_MIME_TYPE,
+        videoBitsPerSecond: VIDEO_BIT_RATE,
       });
-
       const recordedChunks: Blob[] = [];
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) recordedChunks.push(e.data);
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) recordedChunks.push(event.data);
       };
-
-      const recordPromise = new Promise<Blob>((resolve) => {
-        recorder.onstop = () => {
-          resolve(new Blob(recordedChunks, { type: 'video/webm' }));
-        };
+      const recordPromise = new Promise<Blob>((resolve, reject) => {
+        recorder.onerror = () => reject(new Error('MediaRecorder failed while encoding the timelapse.'));
+        recorder.onstop = () => resolve(new Blob(recordedChunks, { type: 'video/webm' }));
       });
 
+      const timing = createTimelapseTiming(frameDelay, transitionEffect, VIDEO_FPS);
       recorder.start();
 
-      // Render each layer frame with crossfade
-      for (let i = 0; i < loadedImages.length; i++) {
-        const img = loadedImages[i];
-        const nextImg = loadedImages[i + 1];
+      for (let index = 0; index < loadedImages.length; index += 1) {
+        const image = loadedImages[index];
+        const nextImage = loadedImages[index + 1];
+        const scale = Math.min(VIDEO_WIDTH / image.width, VIDEO_HEIGHT / image.height);
+        const x = (VIDEO_WIDTH - image.width * scale) / 2;
+        const y = (VIDEO_HEIGHT - image.height * scale) / 2;
 
-        // Draw current frame
-        ctx.fillStyle = '#1A1817';
-        ctx.fillRect(0, 0, targetWidth, targetHeight);
+        context.globalAlpha = 1;
+        context.fillStyle = '#1A1817';
+        context.fillRect(0, 0, VIDEO_WIDTH, VIDEO_HEIGHT);
+        context.drawImage(image, x, y, image.width * scale, image.height * scale);
 
-        // Aspect fit image
-        const scale = Math.min(targetWidth / img.width, targetHeight / img.height);
-        const x = (targetWidth - img.width * scale) / 2;
-        const y = (targetHeight - img.height * scale) / 2;
-        ctx.drawImage(img, x, y, img.width * scale, img.height * scale);
+        if (!nextImage || transitionEffect === 'cut') {
+          await sleep(timing.frameDelayMs);
+          continue;
+        }
 
-        // Hold frame
-        await new Promise((r) => setTimeout(r, 600));
+        await sleep(timing.holdMs);
+        const nextScale = Math.min(VIDEO_WIDTH / nextImage.width, VIDEO_HEIGHT / nextImage.height);
+        const nextX = (VIDEO_WIDTH - nextImage.width * nextScale) / 2;
+        const nextY = (VIDEO_HEIGHT - nextImage.height * nextScale) / 2;
 
-        // Crossfade to next image if available
-        if (nextImg && transitionEffect === 'fade') {
-          const nextScale = Math.min(targetWidth / nextImg.width, targetHeight / nextImg.height);
-          const nextX = (targetWidth - nextImg.width * nextScale) / 2;
-          const nextY = (targetHeight - nextImg.height * nextScale) / 2;
-
-          const steps = 12;
-          for (let step = 1; step <= steps; step++) {
-            const alpha = step / steps;
-            ctx.fillStyle = '#1A1817';
-            ctx.fillRect(0, 0, targetWidth, targetHeight);
-
-            ctx.globalAlpha = 1.0 - alpha;
-            ctx.drawImage(img, x, y, img.width * scale, img.height * scale);
-
-            ctx.globalAlpha = alpha;
-            ctx.drawImage(nextImg, nextX, nextY, nextImg.width * nextScale, nextImg.height * nextScale);
-
-            ctx.globalAlpha = 1.0;
-            await new Promise((r) => setTimeout(r, 30));
-          }
+        for (let step = 1; step <= timing.transitionFrames; step += 1) {
+          const alpha = step / timing.transitionFrames;
+          context.fillStyle = '#1A1817';
+          context.fillRect(0, 0, VIDEO_WIDTH, VIDEO_HEIGHT);
+          context.globalAlpha = 1 - alpha;
+          context.drawImage(image, x, y, image.width * scale, image.height * scale);
+          context.globalAlpha = alpha;
+          context.drawImage(nextImage, nextX, nextY, nextImage.width * nextScale, nextImage.height * nextScale);
+          context.globalAlpha = 1;
+          await sleep(timing.transitionStepMs);
         }
       }
 
-      // Final frame hold
-      await new Promise((r) => setTimeout(r, 800));
-
       recorder.stop();
       const videoBlob = await recordPromise;
-
-      // Download file
       const downloadUrl = URL.createObjectURL(videoBlob);
-      const a = document.createElement('a');
-      a.href = downloadUrl;
-      a.download = `${artwork?.title.replace(/[^a-z0-9]/gi, '_').toLowerCase() || 'artwork'}_timelapse.webm`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(downloadUrl);
-
-      toast.success('Timelapse video generated and downloaded!', { id: toastId });
-    } catch (err: any) {
-      console.error('Export video error:', err);
-      toast.error(err.message || 'Failed to export video', { id: toastId });
+      try {
+        const anchor = document.createElement('a');
+        anchor.href = downloadUrl;
+        anchor.download = `${artwork?.title.replace(/[^a-z0-9]/gi, '_').toLowerCase() || 'artwork'}_timelapse.webm`;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+      } finally {
+        URL.revokeObjectURL(downloadUrl);
+      }
+      toast.success('Timelapse video generated and downloaded.', { id: toastId });
+    } catch (error) {
+      console.error('Export video error:', error);
+      toast.error(errorMessage(error), { id: toastId });
     } finally {
       setGeneratingVideo(false);
     }
   };
 
-  if (loading || !artwork) {
+  if (loading) {
     return (
-      <div className="flex-1 min-h-[70vh] flex items-center justify-center">
+      <div className="flex-1 min-h-[70vh] flex items-center justify-center" role="status" aria-label="Loading artwork">
         <Loader2 className="w-8 h-8 animate-spin text-brand-accent" />
       </div>
     );
   }
 
-  // Calculate current active displayed layer
-  const currentDisplayIndex =
-    playbackIndex !== null
-      ? playbackIndex
-      : selectedLayerId !== null
-      ? layers.findIndex((l) => l.id === selectedLayerId)
-      : layers.length - 1;
+  if (loadError || !artwork) {
+    return (
+      <div className="flex-1 min-h-[70vh] flex items-center justify-center p-6">
+        <div className="max-w-md w-full bg-white border border-red-200 rounded-2xl p-6 text-center shadow-sm">
+          <AlertTriangle className="w-8 h-8 text-red-600 mx-auto mb-3" />
+          <h2 className="font-serif text-xl font-bold text-brand-text">Artwork unavailable</h2>
+          <p className="text-sm text-brand-muted mt-2">{loadError ?? 'The artwork could not be loaded.'}</p>
+          <button
+            type="button"
+            onClick={() => navigate('/dashboard')}
+            className="mt-5 px-5 py-2 rounded-full bg-brand-text text-white text-xs font-bold uppercase tracking-wider hover:bg-black"
+          >
+            Back to portfolio
+          </button>
+        </div>
+      </div>
+    );
+  }
 
+  const selectedIndex = selectedLayerId ? layers.findIndex((layer) => layer.id === selectedLayerId) : -1;
+  const currentDisplayIndex = playbackIndex ?? (selectedIndex >= 0 ? selectedIndex : layers.length - 1);
   const currentDisplayLayer = layers[currentDisplayIndex];
-  const prevDisplayIndex = prevPlaybackIndex !== null ? prevPlaybackIndex : -1;
+  const prevDisplayIndex = prevPlaybackIndex ?? -1;
   const baseLayer = layers[0];
 
   return (
     <div className="flex-1 flex flex-col md:flex-row h-auto md:h-[calc(100vh-80px)] overflow-y-auto md:overflow-hidden bg-[#FAF9F6]">
-      {/* Primary Stage Canvas */}
       <div className="flex-1 flex flex-col items-center justify-center p-4 sm:p-8 overflow-hidden bg-brand-surface/20">
         <ArtworkCanvas
           artwork={artwork}
@@ -446,14 +491,19 @@ export default function ArtworkPage() {
           onTogglePlay={togglePlay}
           onExportTimelapse={handleExportTimelapse}
           onRecalculateAlignment={handleRecalculateAlignment}
+          onWebGpuError={(message) => {
+            setEnableWebGPU(false);
+            toast.error(message);
+          }}
         />
       </div>
 
-      {/* Control Sidebar */}
       <div className="w-full md:w-96 border-t md:border-t-0 md:border-l border-brand-border bg-white flex flex-col h-auto md:h-full shadow-lg z-20">
-        {/* Navigation Tabs */}
-        <div className="flex border-b border-brand-border bg-brand-surface/40 p-1">
+        <div className="flex border-b border-brand-border bg-brand-surface/40 p-1" role="tablist" aria-label="Artwork tools">
           <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === 'milestones'}
             onClick={() => setActiveTab('milestones')}
             className={`flex-1 py-3 text-[10px] uppercase tracking-widest font-extrabold flex items-center justify-center gap-2 transition cursor-pointer ${
               activeTab === 'milestones'
@@ -466,6 +516,9 @@ export default function ArtworkPage() {
           </button>
 
           <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === 'timelapse'}
             onClick={() => setActiveTab('timelapse')}
             className={`flex-1 py-3 text-[10px] uppercase tracking-widest font-extrabold flex items-center justify-center gap-2 transition cursor-pointer ${
               activeTab === 'timelapse'
@@ -478,7 +531,6 @@ export default function ArtworkPage() {
           </button>
         </div>
 
-        {/* Tab Content */}
         {activeTab === 'milestones' ? (
           <MilestonesList
             layers={layers}
@@ -520,7 +572,6 @@ export default function ArtworkPage() {
         )}
       </div>
 
-      {/* Cropping & Perspective Alignment Modal */}
       <CropModal
         isOpen={cropModalOpen}
         imageSrc={currentCroppingImageSrc}
@@ -528,14 +579,10 @@ export default function ArtworkPage() {
           recalculatingLayer && recalculatingLayer.id !== baseLayer?.id
             ? baseLayer?.imageUrl
             : layers.length > 0 && !recalculatingLayer
-            ? baseLayer?.imageUrl
-            : undefined
+              ? baseLayer?.imageUrl
+              : undefined
         }
-        onClose={() => {
-          setCropModalOpen(false);
-          setCurrentCroppingImageSrc(null);
-          setRecalculatingLayer(null);
-        }}
+        onClose={closeCropSession}
         onSave={handleSaveCroppedImage}
       />
     </div>
