@@ -17,6 +17,7 @@ import {
 } from '../src/server/httpErrorPolicy';
 import { parseRequiredPort, registerSpaFallback } from '../src/server/runtime';
 import {
+  dataUrlSchema,
   detectionMethodSchema,
   geminiBoundsSchema,
   perspectivePointsSchema,
@@ -51,38 +52,23 @@ test('server schemas reject missing and malformed values without defaults', () =
   ]));
 
   assert.deepEqual(
-    geminiBoundsSchema.parse({
-      ymin: 0.1,
-      xmin: 0.2,
-      ymax: 0.9,
-      xmax: 0.8,
-      centerX: 0.5,
-      centerY: 0.5,
-      width: 0.6,
-      height: 0.8,
-    }),
-    {
-      ymin: 0.1,
-      xmin: 0.2,
-      ymax: 0.9,
-      xmax: 0.8,
-      centerX: 0.5,
-      centerY: 0.5,
-      width: 0.6,
-      height: 0.8,
-    },
+    geminiBoundsSchema.parse({ ymin: 0.1, xmin: 0.2, ymax: 0.9, xmax: 0.8 }),
+    { ymin: 0.1, xmin: 0.2, ymax: 0.9, xmax: 0.8 },
   );
-  assert.throws(() => geminiBoundsSchema.parse({ ymin: 0, xmin: 0, ymax: 1, xmax: 1 }));
+  assert.throws(() => geminiBoundsSchema.parse({ ymin: 0.8, xmin: 0.2, ymax: 0.1, xmax: 0.8 }));
   assert.throws(() => geminiBoundsSchema.parse({
-    ymin: 0.8,
+    ymin: 0.1,
     xmin: 0.2,
-    ymax: 0.1,
+    ymax: 0.9,
     xmax: 0.8,
     centerX: 0.5,
-    centerY: 0.5,
-    width: 0.6,
-    height: 0.7,
   }));
+
+  assert.deepEqual(dataUrlSchema.parse('data:image/png;base64,AA=='), {
+    mimeType: 'image/png',
+    data: 'AA==',
+  });
+  assert.throws(() => dataUrlSchema.parse('image/png;base64,AA=='));
 });
 
 test('parseRequiredPort accepts an explicit valid TCP port', () => {
