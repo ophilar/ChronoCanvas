@@ -2,8 +2,8 @@ import React, { useRef, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { format } from 'date-fns';
 import { Play, Download, Loader2, Crop } from 'lucide-react';
-import { Artwork, Layer, WebGPUFilterOptions } from '../../types';
-import { getWebGpuRenderer } from '../../lib/webgpuRenderer';
+import type { Artwork, Layer, WebGPUFilterOptions } from '../../types';
+import { destroyWebGpuRenderer, getWebGpuRenderer } from '../../lib/webgpuRenderer';
 
 interface ArtworkCanvasProps {
   artwork: Artwork;
@@ -44,6 +44,8 @@ export const ArtworkCanvas: React.FC<ArtworkCanvasProps> = ({
 }) => {
   const webGpuCanvasRef = useRef<HTMLCanvasElement>(null);
 
+  useEffect(() => () => destroyWebGpuRenderer(), []);
+
   useEffect(() => {
     if (!enableWebGPU || !webGpuCanvasRef.current || !currentDisplayLayer?.imageUrl) return;
 
@@ -80,7 +82,7 @@ export const ArtworkCanvas: React.FC<ArtworkCanvasProps> = ({
           <button
             type="button"
             onClick={() => onRecalculateAlignment(currentDisplayLayer)}
-            className="bg-white/95 hover:bg-brand-surface border border-brand-accent/20 hover:border-brand-accent transition-all px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-full text-[9px] sm:text-[10px] font-black uppercase tracking-widest shadow-md text-brand-accent flex items-center gap-1 sm:gap-1.5"
+            className="bg-white/95 hover:bg-brand-surface border border-brand-accent/20 hover:border-brand-accent transition-all px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-full text-[9px] sm:text-[10px] font-black uppercase tracking-widest shadow-md text-brand-accent flex items-center gap-1 sm:gap-1.5 cursor-pointer"
           >
             <Crop className="w-3 sm:w-3.5 h-3 sm:h-3.5 text-brand-accent" />
             <span>Recalculate Alignment</span>
@@ -90,7 +92,7 @@ export const ArtworkCanvas: React.FC<ArtworkCanvasProps> = ({
 
       <div className="absolute inset-0 w-full h-full overflow-hidden bg-white flex items-center justify-center">
         {enableWebGPU ? (
-          <canvas ref={webGpuCanvasRef} className="block max-w-full max-h-full" aria-label="Filtered artwork preview" />
+          <canvas ref={webGpuCanvasRef} className="block w-auto h-auto max-w-full max-h-full" aria-label="Filtered artwork preview" />
         ) : layers.length > 0 ? (
           <div className="absolute inset-0 w-full h-full flex items-center justify-center">
             {layers.map((layer, index) => {
@@ -152,7 +154,7 @@ export const ArtworkCanvas: React.FC<ArtworkCanvasProps> = ({
           <button
             type="button"
             onClick={onTogglePlay}
-            className={`px-3 sm:px-5 py-2 sm:py-2.5 text-[9px] sm:text-[10px] uppercase tracking-widest font-bold rounded-full shadow-xl transition-all flex items-center gap-1.5 sm:gap-2 border ${
+            className={`px-3 sm:px-5 py-2 sm:py-2.5 text-[9px] sm:text-[10px] uppercase tracking-widest font-bold rounded-full shadow-xl transition-all flex items-center gap-1.5 sm:gap-2 border cursor-pointer ${
               isPlaying
                 ? 'bg-brand-accent text-white border-brand-accent hover:scale-105'
                 : 'bg-white text-brand-text border-black/10 hover:bg-brand-surface hover:scale-105'
@@ -170,7 +172,7 @@ export const ArtworkCanvas: React.FC<ArtworkCanvasProps> = ({
           type="button"
           onClick={onExportTimelapse}
           disabled={layers.length < 2 || generating}
-          className="px-3 sm:px-5 py-2 sm:py-2.5 bg-brand-text text-white text-[9px] sm:text-[10px] uppercase tracking-widest font-bold rounded-full shadow-xl hover:bg-black hover:scale-105 transition-all disabled:opacity-50 disabled:hover:scale-100 flex items-center gap-1.5 sm:gap-2 border border-white/20 disabled:cursor-not-allowed"
+          className="px-3 sm:px-5 py-2 sm:py-2.5 bg-brand-text text-white text-[9px] sm:text-[10px] uppercase tracking-widest font-bold rounded-full shadow-xl hover:bg-black hover:scale-105 transition-all disabled:opacity-50 disabled:hover:scale-100 flex items-center gap-1.5 sm:gap-2 border border-white/20 cursor-pointer disabled:cursor-not-allowed"
         >
           {generating ? <Loader2 className="w-3.5 sm:w-4 h-3.5 sm:h-4 animate-spin" /> : <Download className="w-3.5 sm:w-4 h-3.5 sm:h-4" />}
           <span className="hidden sm:inline">
