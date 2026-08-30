@@ -30,11 +30,23 @@ type FeatureMatch = {
   trainIdx: number;
 };
 
+const MAX_DECODED_IMAGE_PIXELS = 4096 * 4096;
 const DETECTION_MAX_SIZE = 1000;
 const ALIGNMENT_MAX_SIZE = 800;
 const ALIGNMENT_MAX_FEATURES = 5000;
 const ALIGNMENT_MIN_MATCHES = 10;
 const ALIGNMENT_RANSAC_THRESHOLD = 5;
+
+export function assertImageDimensions(width: number, height: number): void {
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) {
+    throw new Error('Decoded image dimensions must be positive integers.');
+  }
+  if (width * height > MAX_DECODED_IMAGE_PIXELS) {
+    throw new Error(
+      `Decoded image exceeds the ${MAX_DECODED_IMAGE_PIXELS.toLocaleString('en-US')} pixel limit.`,
+    );
+  }
+}
 
 class CvResourceScope {
   private readonly resources: CvDisposable[] = [];
@@ -115,6 +127,7 @@ export class ComputerVisionService {
   async detectCanvasBounds(buffer: Buffer): Promise<CanvasBounds> {
     const cv = await this.getOpenCv();
     const image = await loadImage(buffer);
+    assertImageDimensions(image.width, image.height);
     const canvas = createCanvas(image.width, image.height);
     const context = canvas.getContext('2d');
     context.drawImage(image, 0, 0);
@@ -167,6 +180,7 @@ export class ComputerVisionService {
     validatePerspectivePoints(points);
     const cv = await this.getOpenCv();
     const image = await loadImage(buffer);
+    assertImageDimensions(image.width, image.height);
     const width = image.width;
     const height = image.height;
 
@@ -223,6 +237,8 @@ export class ComputerVisionService {
     const cv = await this.getOpenCv();
     const baseImage = await loadImage(baseBuffer);
     const targetImage = await loadImage(targetBuffer);
+    assertImageDimensions(baseImage.width, baseImage.height);
+    assertImageDimensions(targetImage.width, targetImage.height);
 
     const baseCanvas = createCanvas(baseImage.width, baseImage.height);
     const baseContext = baseCanvas.getContext('2d');
