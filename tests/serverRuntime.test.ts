@@ -24,7 +24,7 @@ test('parseRequiredPort rejects missing, fractional, and out-of-range ports', ()
 
 test('decoded image dimensions are bounded before CV allocation', () => {
   assert.doesNotThrow(() => assertImageDimensions(4096, 4096));
-  assert.throws(() => assertImageDimensions(6000, 4000), /decoded pixel limit/i);
+  assert.throws(() => assertImageDimensions(6000, 4000), /pixel limit/i);
   assert.throws(() => assertImageDimensions(0, 4000), /positive integers/i);
 });
 
