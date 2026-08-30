@@ -91,7 +91,7 @@ function parseDataUrl(value: unknown): { buffer: Buffer; mimeType: string } | nu
   if (!match) {
     throw new RequestValidationError('Image data must be a valid base64 data URL.');
   }
-  if (!ACCEPTED_IMAGE_TYPES.has(match[1])) {
+  if (!ACEPTED_IMAGE_TYPES.has(match[1])) {
     throw new RequestValidationError(`Unsupported image content type: ${match[1]}`);
   }
   return { buffer: Buffer.from(match[2], 'base64'), mimeType: match[1] };
@@ -313,12 +313,13 @@ async function startServer(): Promise<void> {
     },
   );
 
+  app.all('/api/{*splat}', (_request, response) => {
+    response.status(404).json({ error: 'API route not found.' });
+  });
+
   if (process.env.NODE_ENV === 'production') {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
-    app.get('/api/{*splat}', (_request, response) => {
-      response.status(404).json({ error: 'API route not found.' });
-    });
     registerSpaFallback(app, distPath);
   } else {
     const vite = await createViteServer({
