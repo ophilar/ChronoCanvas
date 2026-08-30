@@ -5,7 +5,10 @@ import path from 'node:path';
 import test from 'node:test';
 import { createCanvas } from 'canvas';
 import express from 'express';
-import { ComputerVisionService } from '../src/server/computerVisionService';
+import {
+  assertImageDimensions,
+  ComputerVisionService,
+} from '../src/server/computerVisionService';
 import { parseRequiredPort, registerSpaFallback } from '../src/server/runtime';
 
 test('parseRequiredPort accepts an explicit valid TCP port', () => {
@@ -17,6 +20,12 @@ test('parseRequiredPort rejects missing, fractional, and out-of-range ports', ()
   assert.throws(() => parseRequiredPort('3000.5'), /PORT/);
   assert.throws(() => parseRequiredPort('0'), /PORT/);
   assert.throws(() => parseRequiredPort('65536'), /PORT/);
+});
+
+test('decoded image dimensions are bounded before CV allocation', () => {
+  assert.doesNotThrow(() => assertImageDimensions(4096, 4096));
+  assert.throws(() => assertImageDimensions(6000, 4000), /decoded pixel limit/i);
+  assert.throws(() => assertImageDimensions(0, 4000), /positive integers/i);
 });
 
 test('ComputerVisionService resolves the installed OpenCV 5 module before use', async () => {
