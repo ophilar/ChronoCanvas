@@ -9,6 +9,12 @@ import {
   assertImageDimensions,
   ComputerVisionService,
 } from '../src/server/computerVisionService';
+import {
+  ImageProcessingError,
+  RequestValidationError,
+  toHttpErrorResponse,
+  UpstreamServiceError,
+} from '../src/server/httpErrorPolicy';
 import { parseRequiredPort, registerSpaFallback } from '../src/server/runtime';
 
 test('parseRequiredPort accepts an explicit valid TCP port', () => {
@@ -26,6 +32,25 @@ test('decoded image dimensions are bounded before CV allocation', () => {
   assert.doesNotThrow(() => assertImageDimensions(4096, 4096));
   assert.throws(() => assertImageDimensions(6000, 4000), /pixel limit/i);
   assert.throws(() => assertImageDimensions(0, 4000), /positive integers/i);
+});
+
+test('backend error policy exposes only safe classified messages', () => {
+  assert.deepEqual(toHttpErrorResponse(new RequestValidationError('Malformed points.')), {
+    status: 400,
+    message: 'Malformed points.',
+  });
+  assert.deepEqual(toHttpErrorResponse(new ImageProcessingError('Canvas boundary not found.')), {
+    status: 422,
+    message: 'Canvas boundary not found.',
+  });
+  assert.deepEqual(toHttpErrorResponse(new UpstreamServiceError('Gemini canvas detection failed.')), {
+    status: 502,
+    message: 'Gemini canvas detection failed.',
+  });
+  assert.deepEqual(toHttpErrorResponse(new Error('credential=/internal/secret')), {
+    status: 500,
+    message: 'Internal server error.',
+  });
 });
 
 test('ComputerVisionService resolves the installed OpenCV 5 module before use', async () => {
