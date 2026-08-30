@@ -1,25 +1,58 @@
 import {
   collection,
+  deleteDoc,
   doc,
-  query,
-  where,
   getDocs,
+  onSnapshot,
+  query,
   setDoc,
   updateDoc,
-  deleteDoc,
-  onSnapshot,
+  where,
   writeBatch,
 } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
-import { db, auth, storage } from '../firebase';
-import { Artwork, Layer, CanvasBounds, PerspectivePoint } from '../types';
+import { deleteObject, getDownloadURL, ref, uploadBytes } from 'firebase/storage';
+import { auth, db, storage } from '../firebase';
+import { Artwork, CanvasBounds, Layer, PerspectivePoint } from '../types';
 import { createStorageObjectPath } from './workflow';
+
+function record(value: unknown): Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return {};
+  return value as Record<string, unknown>;
+}
+
+async function readJsonObject(response: Response): Promise<Record<string, unknown>> {
+  const text = await response.text();
+  if (!text) throw new Error(`Server returned an empty ${response.status} response.`);
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch (error) {
+    throw new Error(`Server returned invalid JSON with status ${response.status}.`, { cause: error });
+  }
+  return record(parsed);
+}
+
+function responseErrorFromData(
+  response: Response,
+  data: Record<string, unknown>,
+  operation: string,
+): Error {
+  const message =
+    typeof data.error === 'string'
+      ? data.error
+      : `${operation} failed with status ${response.status}.`;
+  return new Error(message);
+}
+
+async function responseError(response: Response, operation: string): Promise<Error> {
+  const data = await readJsonObject(response);
+  return responseErrorFromData(response, data, operation);
+}
 
 async function getAuthToken(): Promise<string> {
   const user = auth.currentUser;
-  if (!user) {
-    throw new Error('Unauthenticated: User is not signed in.');
-  }
+  if (!user) throw new Error('Unauthenticated: user is not signed in.');
   return user.getIdToken();
 }
 
@@ -28,9 +61,9 @@ export function subscribeToArtworks(
   callback: (artworks: Artwork[]) => void,
   onError: (error: Error) => void,
 ) {
-  const q = query(collection(db, 'artworks'), where('ownerId', '==', userId));
+  const artworksQuery = query(collection(db, 'artworks'), where('ownerId', '==', userId));
   return onSnapshot(
-    q,
+    artworksQuery,
     (snapshot) => {
       const list = snapshot.docs
         .map((document) => ({ id: document.id, ...document.data() } as Artwork))
@@ -45,7 +78,7 @@ export async function createArtwork(title: string, description?: string): Promis
   const user = auth.currentUser;
   if (!user) throw new Error('Unauthenticated');
 
-  const docRef = doc(collection(db, 'artworks'));
+  const artworkRef = doc(collection(db, 'artworks'));
   const now = new Date().toISOString();
   const data: {
     title: string;
@@ -63,8 +96,8 @@ export async function createArtwork(title: string, description?: string): Promis
   };
   if (description) data.description = description;
 
-  await setDoc(docRef, data);
-  return docRef.id;
+  await setDoc(artworkRef, data);
+  return artworkRef.id;
 }
 
 export function subscribeToLayers(
@@ -72,9 +105,9 @@ export function subscribeToLayers(
   callback: (layers: Layer[]) => void,
   onError: (error: Error) => void,
 ) {
-  const q = query(collection(db, `artworks/${artworkId}/layers`));
+  const layersQuery = query(collection(db, `artworks/${artworkId}/layers`));
   return onSnapshot(
-    q,
+    layersQuery,
     (snapshot) => {
       const list = snapshot.docs
         .map((document) => ({ id: document.id, ...document.data() } as Layer))
@@ -119,9 +152,7 @@ async function deleteStorageImage(imageUrl: string): Promise<void> {
     imageUrl.startsWith('gs://') ||
     imageUrl.startsWith('https://firebasestorage.googleapis.com/') ||
     imageUrl.startsWith('https://storage.googleapis.com/');
-  if (!isFirebaseUrl) {
-    throw new Error(`Unsupported stored image URL: ${imageUrl}`);
-  }
+  if (!isFirebaseUrl) throw new Error(`Unsupported stored image URL: ${imageUrl}`);
   await deleteObject(ref(storage, imageUrl));
 }
 
@@ -150,7 +181,7 @@ export async function createLayer(
 
   const imageUrl = await uploadImageToStorage(artworkId, imageBlob);
   const batch = writeBatch(db);
-  const layerDocRef = doc(collection(db, `artworks/${artworkId}/layers`));
+  const layerRef = doc(collection(db, `artworks/${artworkId}/layers`));
   const now = new Date().toISOString();
   const layerData: {
     imageUrl: string;
@@ -168,7 +199,7 @@ export async function createLayer(
   if (notes) layerData.notes = notes;
   if (order !== undefined) layerData.order = order;
 
-  batch.set(layerDocRef, layerData);
+  batch.set(layerRef, layerData);
   batch.update(doc(db, 'artworks', artworkId), { updatedAt: now });
 
   try {
@@ -176,7 +207,7 @@ export async function createLayer(
   } catch (error) {
     return rollbackUploadedImage(imageUrl, error);
   }
-  return layerDocRef.id;
+  return layerRef.id;
 }
 
 export async function replaceLayerImage(
@@ -201,13 +232,17 @@ export async function updateLayersOrder(
   layersWithNewOrder: { id: string; order: number }[],
 ): Promise<void> {
   const batch = writeBatch(db);
-  layersWithNewOrder.forEach((item) => {
+  for (const item of layersWithNewOrder) {
     batch.update(doc(db, `artworks/${artworkId}/layers`, item.id), { order: item.order });
-  });
+  }
   await batch.commit();
 }
 
-export async function deleteLayer(artworkId: string, layerId: string, imageUrl: string): Promise<void> {
+export async function deleteLayer(
+  artworkId: string,
+  layerId: string,
+  imageUrl: string,
+): Promise<void> {
   await deleteDoc(doc(db, `artworks/${artworkId}/layers`, layerId));
   await deleteStorageImage(imageUrl);
 }
@@ -215,60 +250,85 @@ export async function deleteLayer(artworkId: string, layerId: string, imageUrl: 
 export async function deleteArtworkComplete(artworkId: string): Promise<void> {
   if (!auth.currentUser) throw new Error('Unauthenticated');
 
-  const layersSnap = await getDocs(collection(db, `artworks/${artworkId}/layers`));
-  const layers = layersSnap.docs.map((document) => ({ id: document.id, ...document.data() } as Layer));
+  const layersSnapshot = await getDocs(collection(db, `artworks/${artworkId}/layers`));
+  const layers = layersSnapshot.docs.map(
+    (document) => ({ id: document.id, ...document.data() }) as Layer,
+  );
 
   const batch = writeBatch(db);
   for (const layer of layers) batch.delete(doc(db, `artworks/${artworkId}/layers`, layer.id));
   batch.delete(doc(db, 'artworks', artworkId));
   await batch.commit();
 
-  const cleanupResults = await Promise.allSettled(layers.map((layer) => deleteStorageImage(layer.imageUrl)));
+  const cleanupResults = await Promise.allSettled(
+    layers.map((layer) => deleteStorageImage(layer.imageUrl)),
+  );
   const cleanupErrors = cleanupResults
     .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
     .map((result) => result.reason);
   if (cleanupErrors.length > 0) {
-    throw new AggregateError(cleanupErrors, 'Artwork was deleted, but one or more stored images could not be removed.');
+    throw new AggregateError(
+      cleanupErrors,
+      'Artwork was deleted, but one or more stored images could not be removed.',
+    );
   }
 }
 
 export async function detectCanvasBoundsApi(
   fileOrBlob: File | Blob,
   method: 'opencv' | 'gemini',
-): Promise<{ bounds: CanvasBounds; mode: string }> {
+): Promise<{ bounds: CanvasBounds; mode: 'opencv' | 'gemini' }> {
   const token = await getAuthToken();
   const formData = new FormData();
   formData.append('file', fileOrBlob);
   formData.append('method', method);
 
-  const res = await fetch('/api/detect-canvas-bounds', {
+  const response = await fetch('/api/detect-canvas-bounds', {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}` },
     body: formData,
   });
+  const data = await readJsonObject(response);
+  if (!response.ok || data.success !== true) {
+    throw responseErrorFromData(response, data, 'Canvas detection');
+  }
+  if (data.mode !== 'opencv' && data.mode !== 'gemini') {
+    throw new Error('Canvas detection returned an invalid mode.');
+  }
 
-  const data = await res.json();
-  if (!res.ok || !data.success) throw new Error(data.error || 'Failed to detect canvas bounds');
-  return { bounds: data.bounds, mode: data.mode };
+  const bounds = record(data.bounds);
+  const { ymin, xmin, ymax, xmax } = bounds;
+  if (
+    typeof ymin !== 'number' ||
+    typeof xmin !== 'number' ||
+    typeof ymax !== 'number' ||
+    typeof xmax !== 'number'
+  ) {
+    throw new Error('Canvas detection returned invalid bounds.');
+  }
+
+  return {
+    bounds: { ymin, xmin, ymax, xmax },
+    mode: data.mode,
+  };
 }
 
-export async function perspectiveWarpApi(fileOrBlob: File | Blob, points: PerspectivePoint[]): Promise<Blob> {
+export async function perspectiveWarpApi(
+  fileOrBlob: File | Blob,
+  points: PerspectivePoint[],
+): Promise<Blob> {
   const token = await getAuthToken();
   const formData = new FormData();
   formData.append('file', fileOrBlob);
   formData.append('points', JSON.stringify(points));
 
-  const res = await fetch('/api/perspective-warp', {
+  const response = await fetch('/api/perspective-warp', {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}` },
     body: formData,
   });
-
-  if (!res.ok) {
-    const errJson = await res.json().catch(() => ({}));
-    throw new Error(errJson.error || 'Perspective warp failed');
-  }
-  return res.blob();
+  if (!response.ok) throw await responseError(response, 'Perspective warp');
+  return response.blob();
 }
 
 export async function alignMilestonesApi(
@@ -280,15 +340,11 @@ export async function alignMilestonesApi(
   formData.append('target', targetFileOrBlob);
   formData.append('base', baseFileOrBlob);
 
-  const res = await fetch('/api/align', {
+  const response = await fetch('/api/align', {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}` },
     body: formData,
   });
-
-  if (!res.ok) {
-    const errJson = await res.json().catch(() => ({}));
-    throw new Error(errJson.error || 'Milestone alignment failed');
-  }
-  return res.blob();
+  if (!response.ok) throw await responseError(response, 'Milestone alignment');
+  return response.blob();
 }
