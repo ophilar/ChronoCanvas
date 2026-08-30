@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { format } from 'date-fns';
 import { useDropzone } from 'react-dropzone';
 import { ImagePlus, Loader2, ArrowLeft, Crop, Trash2 } from 'lucide-react';
+import { getMilestoneMoveTarget } from '../../lib/workflow';
 import type { Layer } from '../../types';
 
 interface MilestonesListProps {
@@ -117,8 +118,8 @@ export const MilestonesList: React.FC<MilestonesListProps> = ({
               : selectedLayerId !== null
                 ? selectedLayerId === layer.id
                 : index === layers.length - 1;
-            const canMoveEarlier = index > 1;
-            const canMoveLater = index > 0 && index < layers.length - 1;
+            const canMoveEarlier = getMilestoneMoveTarget(index, 'up', layers.length) !== null;
+            const canMoveLater = getMilestoneMoveTarget(index, 'down', layers.length) !== null;
 
             return (
               <article
