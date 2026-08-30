@@ -2,6 +2,13 @@ import { z } from 'zod';
 
 const normalizedCoordinateSchema = z.number().finite().min(0).max(1);
 
+export const imageMimeTypeSchema = z.enum([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/gif',
+]);
+
 export const detectionMethodSchema = z.enum(['opencv', 'gemini']);
 
 export const perspectivePointSchema = z
@@ -36,4 +43,35 @@ export const dataUrlSchema = z
       mimeType: value.slice('data:'.length, separator),
       data: value.slice(separator + marker.length),
     };
-  });
+  })
+  .pipe(
+    z.object({
+      mimeType: imageMimeTypeSchema,
+      data: z.string().min(1),
+    }),
+  );
+
+export const detectionRequestBodySchema = z
+  .object({
+    method: detectionMethodSchema,
+    image: dataUrlSchema.optional(),
+  })
+  .strict();
+
+const perspectivePointsJsonSchema = z.string().transform((value, context): unknown => {
+  try {
+    return JSON.parse(value);
+  } catch {
+    context.addIssue({
+      code: 'custom',
+      message: 'Perspective point coordinates must be valid JSON.',
+    });
+    return z.NEVER;
+  }
+});
+
+export const perspectiveRequestBodySchema = z
+  .object({
+    points: perspectivePointsJsonSchema.pipe(perspectivePointsSchema),
+  })
+  .strict();
