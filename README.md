@@ -1,20 +1,38 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# ChronoCanvas
 
-# Run and deploy your AI Studio app
+ChronoCanvas tracks painting milestones, aligns progress images, and exports timelapse videos.
 
-This contains everything you need to run your app locally.
+## Stack
 
-View your app in AI Studio: https://ai.studio/apps/7f3259ed-ec8e-416e-9f29-d3d3fa2884f3
+- React 19 + Vite 8
+- Firebase Authentication, Firestore, and Storage
+- Express 5 backend for authenticated OpenCV/Gemini image processing
+- OpenCV.js 5 for canvas detection, perspective correction, and milestone alignment
 
-## Run Locally
+## Local development
 
-**Prerequisites:**  Node.js
-
+Prerequisites: Node.js 26+ and Bun 1.4+.
 
 1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+   `bun install --frozen-lockfile`
+2. Copy `.env.example` to `.env.local`.
+3. Set `PORT` explicitly. `3000` is suitable for local development.
+4. To enable Gemini-based canvas detection, set both `GEMINI_API_KEY` and `GEMINI_MODEL`. The example uses the current GA `gemini-3.7-flash` model.
+5. Run:
+   `bun run dev`
+
+OpenCV detection remains available without Gemini configuration.
+
+## Verification
+
+Run the complete local verification pipeline with:
+
+`bun run check`
+
+This performs TypeScript validation, Firebase rules linting, regression tests, and the production build.
+
+## Deployment
+
+The server requires `PORT`; managed Cloud Run deployments provide it automatically. Firebase Admin uses Application Default Credentials in the deployed environment. Images are persisted in Firebase Storage rather than the container filesystem.
+
+Deploy Firestore and Storage rules from `firebase.json` so they are applied to the configured named Firestore database and Storage bucket.
