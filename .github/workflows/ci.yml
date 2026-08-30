@@ -18,22 +18,23 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v7.0.1
 
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@v2.2.0
+      - name: Set up Node.js
+        uses: actions/setup-node@v7.0.0
         with:
-          bun-version: 1.4.0
+          node-version: '24'
+          cache: npm
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: npm ci
 
       - name: Type-check and validate rules
-        run: bun run lint
+        run: npm run lint
 
       - name: Run regression tests
-        run: bun run test
+        run: npm test
 
       - name: Build production artifacts
-        run: bun run build
+        run: npm run build
 
       - name: Smoke-test production server
         env:
@@ -73,4 +74,4 @@ jobs:
             --data '{' \
             http://127.0.0.1:${PORT}/api/detect-canvas-bounds)
           test "$json_status" = '400'
-          grep --quiet 'Request body contains invalid JSON' json-response.json
+          grep --quiet 'Invalid request payload' json-response.json
