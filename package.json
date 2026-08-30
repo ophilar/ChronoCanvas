@@ -7,8 +7,12 @@
     "dev": "tsx server.ts",
     "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
     "start": "node dist/server.cjs",
-    "clean": "rm -rf dist server.cjs",
-    "lint": "tsc --noEmit"
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test tests/*.test.ts",
+    "lint:rules": "eslint firestore.rules",
+    "lint": "bun run typecheck && bun run lint:rules",
+    "check": "bun run lint && bun run test && bun run build"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
