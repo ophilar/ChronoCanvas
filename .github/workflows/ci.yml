@@ -34,3 +34,27 @@ jobs:
 
       - name: Build production artifacts
         run: bun run build
+
+      - name: Smoke-test production server
+        env:
+          NODE_ENV: production
+          PORT: '4173'
+        run: |
+          node dist/server.cjs > server-smoke.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+
+          for attempt in {1..20}; do
+            if curl --fail --silent --show-error http://127.0.0.1:${PORT}/artwork/smoke > smoke-response.html; then
+              grep --quiet '<div id="root"></div>' smoke-response.html
+              exit 0
+            fi
+            if ! kill -0 "$server_pid" 2>/dev/null; then
+              cat server-smoke.log
+              exit 1
+            fi
+            sleep 0.25
+          done
+
+          cat server-smoke.log
+          exit 1
