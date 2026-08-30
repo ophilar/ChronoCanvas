@@ -2,6 +2,7 @@ import {
   collection,
   deleteDoc,
   doc,
+  getDoc,
   getDocs,
   onSnapshot,
   query,
@@ -13,7 +14,8 @@ import {
 import { deleteObject, getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import { z } from 'zod';
 import { auth, db, storage } from '../firebase';
-import { Artwork, CanvasBounds, Layer, PerspectivePoint } from '../types';
+import type { Artwork, CanvasBounds, Layer, PerspectivePoint } from '../types';
+import { parseArtworkDocument, parseLayerDocument } from './firestoreModels';
 import { createStorageObjectPath } from './workflow';
 
 const errorResponseSchema = z.object({ error: z.string().min(1) }).strict();
@@ -38,6 +40,10 @@ const canvasDetectionResponseSchema = z
       }),
   })
   .strict();
+
+function asError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error));
+}
 
 async function readJson(response: Response): Promise<unknown> {
   const text = await response.text();
@@ -75,13 +81,22 @@ export function subscribeToArtworks(
   return onSnapshot(
     artworksQuery,
     (snapshot) => {
-      const list = snapshot.docs
-        .map((document) => ({ id: document.id, ...document.data() } as Artwork))
-        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-      callback(list);
+      try {
+        const list = snapshot.docs
+          .map((document) => parseArtworkDocument(document.id, document.data()))
+          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        callback(list);
+      } catch (error) {
+        onError(asError(error));
+      }
     },
     onError,
   );
+}
+
+export async function getArtwork(artworkId: string): Promise<Artwork | null> {
+  const snapshot = await getDoc(doc(db, 'artworks', artworkId));
+  return snapshot.exists() ? parseArtworkDocument(snapshot.id, snapshot.data()) : null;
 }
 
 export async function createArtwork(title: string, description?: string): Promise<string> {
@@ -119,15 +134,19 @@ export function subscribeToLayers(
   return onSnapshot(
     layersQuery,
     (snapshot) => {
-      const list = snapshot.docs
-        .map((document) => ({ id: document.id, ...document.data() } as Layer))
-        .sort((a, b) => {
-          const orderA = a.order ?? Number.MAX_SAFE_INTEGER;
-          const orderB = b.order ?? Number.MAX_SAFE_INTEGER;
-          if (orderA !== orderB) return orderA - orderB;
-          return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-        });
-      callback(list);
+      try {
+        const list = snapshot.docs
+          .map((document) => parseLayerDocument(document.id, document.data()))
+          .sort((a, b) => {
+            const orderA = a.order ?? Number.MAX_SAFE_INTEGER;
+            const orderB = b.order ?? Number.MAX_SAFE_INTEGER;
+            if (orderA !== orderB) return orderA - orderB;
+            return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+          });
+        callback(list);
+      } catch (error) {
+        onError(asError(error));
+      }
     },
     onError,
   );
@@ -261,8 +280,8 @@ export async function deleteArtworkComplete(artworkId: string): Promise<void> {
   if (!auth.currentUser) throw new Error('Unauthenticated');
 
   const layersSnapshot = await getDocs(collection(db, `artworks/${artworkId}/layers`));
-  const layers = layersSnapshot.docs.map(
-    (document) => ({ id: document.id, ...document.data() }) as Layer,
+  const layers = layersSnapshot.docs.map((document) =>
+    parseLayerDocument(document.id, document.data()),
   );
 
   const batch = writeBatch(db);
