@@ -12,6 +12,11 @@ import {
   ComputerVisionService,
   type PerspectivePoint,
 } from './src/server/computerVisionService';
+import {
+  RequestValidationError,
+  toHttpErrorResponse,
+  UpstreamServiceError,
+} from './src/server/httpErrorPolicy';
 import { parseRequiredPort, registerSpaFallback } from './src/server/runtime';
 
 const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
@@ -33,10 +38,6 @@ if (getApps().length === 0) {
   initializeApp({ projectId: firebaseConfig.projectId });
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 async function requireAuth(
   request: express.Request,
   response: express.Response,
@@ -45,7 +46,8 @@ async function requireAuth(
   const authorization = request.headers.authorization;
   const match = authorization?.match(/^Bearer ([^\s]+)$/);
   if (!match) {
-    return response.status(401).json({ error: 'Unauthorized: missing or invalid Authorization header.' });
+    response.status(401).json({ error: 'Unauthorized: missing or invalid Authorization header.' });
+    return;
   }
 
   try {
@@ -53,7 +55,7 @@ async function requireAuth(
     next();
   } catch (error) {
     console.warn('Rejected invalid Firebase ID token:', error);
-    return response.status(401).json({ error: 'Unauthorized: invalid Firebase token.' });
+    response.status(401).json({ error: 'Unauthorized: invalid Firebase token.' });
   }
 }
 
@@ -65,55 +67,116 @@ const upload = multer({
   },
   fileFilter: (_request, file, callback) => {
     if (!ACCEPTED_IMAGE_TYPES.has(file.mimetype)) {
-      callback(new Error(`Unsupported image content type: ${file.mimetype}`));
+      callback(new RequestValidationError(`Unsupported image content type: ${file.mimetype}`));
       return;
     }
     callback(null, true);
   },
 });
 
-function record(value: unknown): Record<string, unknown> {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return {};
+function requireRecord(value: unknown, name: string): Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new RequestValidationError(`${name} must be an object.`);
+  }
   return value as Record<string, unknown>;
 }
 
 function parseDataUrl(value: unknown): { buffer: Buffer; mimeType: string } | null {
-  if (typeof value !== 'string') return null;
+  if (value === undefined) return null;
+  if (typeof value !== 'string') {
+    throw new RequestValidationError('Image data must be a base64 data URL string.');
+  }
+
   const match = value.match(/^data:([^;,]+);base64,([A-Za-z0-9+/=]+)$/);
-  if (!match) return null;
+  if (!match) {
+    throw new RequestValidationError('Image data must be a valid base64 data URL.');
+  }
   if (!ACCEPTED_IMAGE_TYPES.has(match[1])) {
-    throw new Error(`Unsupported image content type: ${match[1]}`);
+    throw new RequestValidationError(`Unsupported image content type: ${match[1]}`);
   }
   return { buffer: Buffer.from(match[2], 'base64'), mimeType: match[1] };
 }
 
 function parseDetectionMethod(request: express.Request): 'opencv' | 'gemini' {
-  const body = record(request.body);
-  const queryMethod = request.query.method;
-  const value = typeof body.method === 'string' ? body.method : queryMethod;
+  const body = requireRecord(request.body, 'Request body');
+  const value = typeof body.method === 'string' ? body.method : request.query.method;
   if (value !== 'opencv' && value !== 'gemini') {
-    throw new Error('Detection method must be either "opencv" or "gemini".');
+    throw new RequestValidationError('Detection method must be either "opencv" or "gemini".');
   }
   return value;
 }
 
 function parsePerspectivePoints(value: unknown): PerspectivePoint[] {
   if (typeof value !== 'string') {
-    throw new Error('Missing perspective point coordinates.');
+    throw new RequestValidationError('Missing perspective point coordinates.');
   }
 
-  const parsed: unknown = JSON.parse(value);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch (error) {
+    throw new RequestValidationError('Perspective point coordinates must be valid JSON.', {
+      cause: error,
+    });
+  }
   if (!Array.isArray(parsed)) {
-    throw new Error('Perspective point coordinates must be an array.');
+    throw new RequestValidationError('Perspective point coordinates must be an array.');
   }
 
-  return parsed.map((point) => {
-    const candidate = record(point);
+  return parsed.map((point, index) => {
+    const candidate = requireRecord(point, `Perspective point ${index + 1}`);
     if (typeof candidate.x !== 'number' || typeof candidate.y !== 'number') {
-      throw new Error('Every perspective point must contain numeric x and y coordinates.');
+      throw new RequestValidationError(
+        `Perspective point ${index + 1} must contain numeric x and y coordinates.`,
+      );
     }
     return { x: candidate.x, y: candidate.y };
   });
+}
+
+function parseGeminiBounds(text: string): Record<string, number> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch (error) {
+    throw new UpstreamServiceError('Gemini canvas detection returned invalid structured data.', {
+      cause: error,
+    });
+  }
+
+  const bounds =
+    typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  const keys = ['ymin', 'xmin', 'ymax', 'xmax', 'centerX', 'centerY', 'width', 'height'] as const;
+  if (!bounds || keys.some((key) => typeof bounds[key] !== 'number' || !Number.isFinite(bounds[key]))) {
+    throw new UpstreamServiceError('Gemini canvas detection returned invalid structured data.');
+  }
+
+  return Object.fromEntries(keys.map((key) => [key, bounds[key] as number]));
+}
+
+function normalizeMiddlewareError(error: unknown): unknown {
+  if (error instanceof multer.MulterError) {
+    if (error.code === 'LIMIT_FILE_SIZE') {
+      return new RequestValidationError(`Image upload exceeds the ${MAX_UPLOAD_BYTES} byte limit.`);
+    }
+    if (error.code === 'LIMIT_FILE_COUNT' || error.code === 'LIMIT_UNEXPECTED_FILE') {
+      return new RequestValidationError('Image upload contains an unexpected number of files.');
+    }
+    return new RequestValidationError('Invalid multipart image upload.');
+  }
+
+  if (
+    error instanceof SyntaxError &&
+    typeof error === 'object' &&
+    error !== null &&
+    'type' in error &&
+    error.type === 'entity.parse.failed'
+  ) {
+    return new RequestValidationError('Request body contains invalid JSON.');
+  }
+  return error;
 }
 
 async function startServer(): Promise<void> {
@@ -129,27 +192,29 @@ async function startServer(): Promise<void> {
     requireAuth,
     upload.single('file'),
     async (request, response) => {
-      try {
-        const body = record(request.body);
-        const dataUrl = parseDataUrl(body.image);
-        const imageBuffer = request.file?.buffer ?? dataUrl?.buffer;
-        const mimeType = request.file?.mimetype ?? dataUrl?.mimeType;
-        if (!imageBuffer || !mimeType) {
-          return response.status(400).json({ error: 'No image file or base64 data URL was provided.' });
+      const body = requireRecord(request.body, 'Request body');
+      const dataUrl = parseDataUrl(body.image);
+      const imageBuffer = request.file?.buffer ?? dataUrl?.buffer;
+      const mimeType = request.file?.mimetype ?? dataUrl?.mimeType;
+      if (!imageBuffer || !mimeType) {
+        throw new RequestValidationError('No image file or base64 data URL was provided.');
+      }
+
+      const method = parseDetectionMethod(request);
+      if (method === 'gemini') {
+        const apiKey = process.env.GEMINI_API_KEY;
+        const model = process.env.GEMINI_MODEL;
+        if (!apiKey || !model) {
+          response.status(503).json({
+            error: 'Gemini detection requires GEMINI_API_KEY and GEMINI_MODEL on the server.',
+          });
+          return;
         }
 
-        const method = parseDetectionMethod(request);
-        if (method === 'gemini') {
-          const apiKey = process.env.GEMINI_API_KEY;
-          const model = process.env.GEMINI_MODEL;
-          if (!apiKey || !model) {
-            return response.status(503).json({
-              error: 'Gemini detection requires GEMINI_API_KEY and GEMINI_MODEL on the server.',
-            });
-          }
-
-          const ai = new GoogleGenAI({ apiKey });
-          const result = await ai.models.generateContent({
+        const ai = new GoogleGenAI({ apiKey });
+        let result;
+        try {
+          result = await ai.models.generateContent({
             model,
             contents: {
               parts: [
@@ -182,32 +247,31 @@ async function startServer(): Promise<void> {
               },
             },
           });
-
-          if (!result.text) {
-            throw new Error('Gemini returned no structured bounding-box response.');
-          }
-          const bounds: unknown = JSON.parse(result.text.trim());
-          return response.json({ success: true, bounds, mode: 'gemini' });
+        } catch (error) {
+          throw new UpstreamServiceError('Gemini canvas detection failed.', { cause: error });
         }
 
-        const bounds = await computerVision.detectCanvasBounds(imageBuffer);
-        const width = bounds.xmax - bounds.xmin;
-        const height = bounds.ymax - bounds.ymin;
-        return response.json({
-          success: true,
-          bounds: {
-            ...bounds,
-            centerX: bounds.xmin + width / 2,
-            centerY: bounds.ymin + height / 2,
-            width,
-            height,
-          },
-          mode: 'opencv',
-        });
-      } catch (error) {
-        console.error('Canvas detection failed:', error);
-        return response.status(400).json({ error: errorMessage(error) });
+        if (!result.text) {
+          throw new UpstreamServiceError('Gemini canvas detection returned no structured data.');
+        }
+        response.json({ success: true, bounds: parseGeminiBounds(result.text.trim()), mode: 'gemini' });
+        return;
       }
+
+      const bounds = await computerVision.detectCanvasBounds(imageBuffer);
+      const width = bounds.xmax - bounds.xmin;
+      const height = bounds.ymax - bounds.ymin;
+      response.json({
+        success: true,
+        bounds: {
+          ...bounds,
+          centerX: bounds.xmin + width / 2,
+          centerY: bounds.ymin + height / 2,
+          width,
+          height,
+        },
+        mode: 'opencv',
+      });
     },
   );
 
@@ -216,17 +280,13 @@ async function startServer(): Promise<void> {
     requireAuth,
     upload.single('file'),
     async (request, response) => {
-      try {
-        if (!request.file) {
-          return response.status(400).json({ error: 'Missing image file.' });
-        }
-        const points = parsePerspectivePoints(record(request.body).points);
-        const warped = await computerVision.warpPerspective(request.file.buffer, points);
-        response.type('png').send(warped);
-      } catch (error) {
-        console.error('Perspective warp failed:', error);
-        response.status(400).json({ error: errorMessage(error) });
+      if (!request.file) {
+        throw new RequestValidationError('Missing image file.');
       }
+      const body = requireRecord(request.body, 'Request body');
+      const points = parsePerspectivePoints(body.points);
+      const warped = await computerVision.warpPerspective(request.file.buffer, points);
+      response.type('png').send(warped);
     },
   );
 
@@ -238,29 +298,27 @@ async function startServer(): Promise<void> {
       { name: 'base', maxCount: 1 },
     ]),
     async (request, response) => {
-      try {
-        const files = request.files;
-        if (!files || Array.isArray(files)) {
-          return response.status(400).json({ error: 'Expected target and base image fields.' });
-        }
-        const targetBuffer = files.target?.[0]?.buffer;
-        const baseBuffer = files.base?.[0]?.buffer;
-        if (!targetBuffer || !baseBuffer) {
-          return response.status(400).json({ error: 'Both target and base image files are required.' });
-        }
-
-        const aligned = await computerVision.align(targetBuffer, baseBuffer);
-        response.type('png').send(aligned);
-      } catch (error) {
-        console.error('Milestone alignment failed:', error);
-        response.status(400).json({ error: errorMessage(error) });
+      const files = request.files;
+      if (!files || Array.isArray(files)) {
+        throw new RequestValidationError('Expected target and base image fields.');
       }
+      const targetBuffer = files.target?.[0]?.buffer;
+      const baseBuffer = files.base?.[0]?.buffer;
+      if (!targetBuffer || !baseBuffer) {
+        throw new RequestValidationError('Both target and base image files are required.');
+      }
+
+      const aligned = await computerVision.align(targetBuffer, baseBuffer);
+      response.type('png').send(aligned);
     },
   );
 
   if (process.env.NODE_ENV === 'production') {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
+    app.get('/api/{*splat}', (_request, response) => {
+      response.status(404).json({ error: 'API route not found.' });
+    });
     registerSpaFallback(app, distPath);
   } else {
     const vite = await createViteServer({
@@ -270,14 +328,18 @@ async function startServer(): Promise<void> {
     app.use(vite.middlewares);
   }
 
-  app.use((error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
-    console.error('Unhandled request error:', error);
-    if (error instanceof multer.MulterError) {
-      response.status(400).json({ error: error.message });
-      return;
-    }
-    response.status(400).json({ error: errorMessage(error) });
-  });
+  app.use(
+    (
+      error: unknown,
+      _request: express.Request,
+      response: express.Response,
+      _next: express.NextFunction,
+    ) => {
+      console.error('Unhandled request error:', error);
+      const publicError = toHttpErrorResponse(normalizeMiddlewareError(error));
+      response.status(publicError.status).json({ error: publicError.message });
+    },
+  );
 
   app.listen(port, '0.0.0.0', () => {
     console.log(`ChronoCanvas server listening on port ${port}.`);
