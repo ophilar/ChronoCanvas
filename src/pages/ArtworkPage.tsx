@@ -492,8 +492,7 @@ export default function ArtworkPage() {
           onExportTimelapse={handleExportTimelapse}
           onRecalculateAlignment={handleRecalculateAlignment}
           onWebGpuError={(message) => {
-            setEnableWebGPU(false);
-            toast.error(message);
+            toast.error(`${message} WebGPU remains enabled; disable it in Timelapse Studio to use standard rendering.`);
           }}
         />
       </div>
