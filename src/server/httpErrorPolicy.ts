@@ -1,13 +1,13 @@
 export class RequestValidationError extends Error {
-  constructor(message: string) {
-    super(message);
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
     this.name = 'RequestValidationError';
   }
 }
 
 export class ImageProcessingError extends Error {
-  constructor(message: string) {
-    super(message);
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
     this.name = 'ImageProcessingError';
   }
 }
