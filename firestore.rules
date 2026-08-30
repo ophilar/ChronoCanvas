@@ -1,43 +1,35 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function ownsArtwork(artworkId) {
+      return signedIn()
+        && get(/databases/$(database)/documents/artworks/$(artworkId)).data.ownerId == request.auth.uid;
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }
 
     match /artworks/{artworkId} {
-      allow create: if request.auth != null 
+      allow create: if signedIn()
                     && request.resource.data.ownerId == request.auth.uid;
-      allow read, delete: if request.auth != null 
+      allow read, delete: if signedIn()
                           && resource.data.ownerId == request.auth.uid;
-      allow update: if request.auth != null 
-                    && resource.data.ownerId == request.auth.uid 
+      allow update: if signedIn()
+                    && resource.data.ownerId == request.auth.uid
                     && request.resource.data.ownerId == resource.data.ownerId;
 
       match /layers/{layerId} {
-        allow create: if request.auth != null 
-                      && request.resource.data.ownerId == request.auth.uid 
-                      && get(/databases/$(database)/documents/artworks/$(artworkId)).data.ownerId == request.auth.uid;
-        allow read, delete: if request.auth != null 
-                            && (resource.data.ownerId == request.auth.uid || get(/databases/$(database)/documents/artworks/$(artworkId)).data.ownerId == request.auth.uid);
-        allow update: if request.auth != null 
-                      && resource.data.ownerId == request.auth.uid 
-                      && request.resource.data.ownerId == resource.data.ownerId 
-                      && get(/databases/$(database)/documents/artworks/$(artworkId)).data.ownerId == request.auth.uid;
+        allow read, create, update, delete: if ownsArtwork(artworkId);
       }
 
       match /photos/{photoId} {
-        allow create: if request.auth != null 
-                      && request.resource.data.ownerId == request.auth.uid 
-                      && get(/databases/$(database)/documents/artworks/$(artworkId)).data.ownerId == request.auth.uid;
-        allow read, delete: if request.auth != null 
-                            && (resource.data.ownerId == request.auth.uid || get(/databases/$(database)/documents/artworks/$(artworkId)).data.ownerId == request.auth.uid);
-        allow update: if request.auth != null 
-                      && resource.data.ownerId == request.auth.uid 
-                      && request.resource.data.ownerId == resource.data.ownerId 
-                      && get(/databases/$(database)/documents/artworks/$(artworkId)).data.ownerId == request.auth.uid;
+        allow read, create, update, delete: if ownsArtwork(artworkId);
       }
     }
   }
 }
-
