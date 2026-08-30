@@ -10,7 +10,7 @@
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts",
-    "lint:rules": "eslint firestore.rules",
+    "lint:rules": "eslint firestore.rules storage.rules",
     "lint": "bun run typecheck && bun run lint:rules",
     "check": "bun run lint && bun run test && bun run build"
   },
@@ -37,8 +37,7 @@
     "react-easy-crop": "^6.0.2",
     "react-hot-toast": "^2.6.0",
     "react-router": "^7.17.0",
-    "tailwind-merge": "^3.6.0",
-    "vite": "^8.1.4"
+    "tailwind-merge": "^3.6.0"
   },
   "devDependencies": {
     "@firebase/eslint-plugin-security-rules": "^0.0.2",
