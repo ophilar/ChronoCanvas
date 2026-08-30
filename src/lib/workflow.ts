@@ -1,4 +1,4 @@
-import { CanvasBounds } from '../types';
+import type { CanvasBounds } from '../types';
 
 export interface ClassicCropGeometry {
   crop: { x: number; y: number };
@@ -14,6 +14,8 @@ export interface TimelapseTiming {
   transitionFrames: number;
   transitionStepMs: number;
 }
+
+export type MilestoneMoveDirection = 'up' | 'down';
 
 function assertPositiveFinite(value: number, name: string): void {
   if (!Number.isFinite(value) || value <= 0) {
@@ -66,6 +68,18 @@ export function canvasBoundsToCrop(
     aspectRatio: width / height,
     croppedAreaPixels: { x: left, y: top, width, height },
   };
+}
+
+export function getMilestoneMoveTarget(
+  index: number,
+  direction: MilestoneMoveDirection,
+  milestoneCount: number,
+): number | null {
+  if (index === 0) return null;
+
+  const targetIndex = direction === 'up' ? index - 1 : index + 1;
+  if (targetIndex <= 0 || targetIndex >= milestoneCount) return null;
+  return targetIndex;
 }
 
 export function createTimelapseTiming(
