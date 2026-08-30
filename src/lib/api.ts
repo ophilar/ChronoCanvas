@@ -2,6 +2,7 @@ import {
   collection,
   doc,
   query,
+  where,
   getDocs,
   setDoc,
   updateDoc,
@@ -27,13 +28,12 @@ export function subscribeToArtworks(
   callback: (artworks: Artwork[]) => void,
   onError: (error: Error) => void,
 ) {
-  const q = query(collection(db, 'artworks'));
+  const q = query(collection(db, 'artworks'), where('ownerId', '==', userId));
   return onSnapshot(
     q,
     (snapshot) => {
       const list = snapshot.docs
         .map((document) => ({ id: document.id, ...document.data() } as Artwork))
-        .filter((artwork) => artwork.ownerId === userId)
         .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       callback(list);
     },
@@ -146,8 +146,7 @@ export async function createLayer(
   customCreatedAt?: string,
   order?: number,
 ): Promise<string> {
-  const user = auth.currentUser;
-  if (!user) throw new Error('Unauthenticated');
+  if (!auth.currentUser) throw new Error('Unauthenticated');
 
   const imageUrl = await uploadImageToStorage(artworkId, imageBlob);
   const batch = writeBatch(db);
@@ -193,9 +192,7 @@ export async function replaceLayerImage(
     return rollbackUploadedImage(imageUrl, error);
   }
 
-  if (previousImageUrl !== imageUrl) {
-    await deleteStorageImage(previousImageUrl);
-  }
+  if (previousImageUrl !== imageUrl) await deleteStorageImage(previousImageUrl);
   return imageUrl;
 }
 
@@ -216,16 +213,13 @@ export async function deleteLayer(artworkId: string, layerId: string, imageUrl: 
 }
 
 export async function deleteArtworkComplete(artworkId: string): Promise<void> {
-  const user = auth.currentUser;
-  if (!user) throw new Error('Unauthenticated');
+  if (!auth.currentUser) throw new Error('Unauthenticated');
 
   const layersSnap = await getDocs(collection(db, `artworks/${artworkId}/layers`));
   const layers = layersSnap.docs.map((document) => ({ id: document.id, ...document.data() } as Layer));
 
   const batch = writeBatch(db);
-  for (const layer of layers) {
-    batch.delete(doc(db, `artworks/${artworkId}/layers`, layer.id));
-  }
+  for (const layer of layers) batch.delete(doc(db, `artworks/${artworkId}/layers`, layer.id));
   batch.delete(doc(db, 'artworks', artworkId));
   await batch.commit();
 
