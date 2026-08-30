@@ -1,5 +1,6 @@
 import cvModule from '@techstark/opencv-js';
 import { createCanvas, loadImage } from 'canvas';
+import { ImageProcessingError, RequestValidationError } from './httpErrorPolicy';
 
 export interface CanvasBounds {
   ymin: number;
@@ -39,10 +40,10 @@ const ALIGNMENT_RANSAC_THRESHOLD = 5;
 
 export function assertImageDimensions(width: number, height: number): void {
   if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) {
-    throw new Error('Decoded image dimensions must be positive integers.');
+    throw new RequestValidationError('Decoded image dimensions must be positive integers.');
   }
   if (width * height > MAX_DECODED_IMAGE_PIXELS) {
-    throw new Error(
+    throw new RequestValidationError(
       `Decoded image exceeds the ${MAX_DECODED_IMAGE_PIXELS.toLocaleString('en-US')} pixel limit.`,
     );
   }
@@ -66,7 +67,7 @@ class CvResourceScope {
 
 function validatePerspectivePoints(points: PerspectivePoint[]): void {
   if (points.length !== 4) {
-    throw new Error('Perspective warping requires exactly 4 points.');
+    throw new RequestValidationError('Perspective warping requires exactly 4 points.');
   }
 
   for (const point of points) {
@@ -78,7 +79,9 @@ function validatePerspectivePoints(points: PerspectivePoint[]): void {
       point.y < 0 ||
       point.y > 1
     ) {
-      throw new Error('Perspective coordinates must be finite values in the normalized range from 0 to 1.');
+      throw new RequestValidationError(
+        'Perspective coordinates must be finite values in the normalized range from 0 to 1.',
+      );
     }
   }
 }
@@ -168,7 +171,7 @@ export class ComputerVisionService {
       }
 
       if (!bounds) {
-        throw new Error('OpenCV could not detect a canvas boundary in this image.');
+        throw new ImageProcessingError('OpenCV could not detect a canvas boundary in this image.');
       }
       return bounds;
     } finally {
@@ -193,7 +196,7 @@ export class ComputerVisionService {
       Math.max(Math.hypot(x3 - x0, y3 - y0), Math.hypot(x2 - x1, y2 - y1)),
     );
     if (outputWidth <= 0 || outputHeight <= 0) {
-      throw new Error('Perspective coordinates describe a degenerate quadrilateral.');
+      throw new ImageProcessingError('Perspective coordinates describe a degenerate quadrilateral.');
     }
 
     const canvas = createCanvas(width, height);
@@ -265,7 +268,9 @@ export class ComputerVisionService {
       orb.detectAndCompute(target.gray, scope.track(new cv.Mat()), targetKeypoints, targetDescriptors);
 
       if (baseDescriptors.empty() || targetDescriptors.empty()) {
-        throw new Error('Alignment failed: no distinctive visual keypoints were found in the images.');
+        throw new ImageProcessingError(
+          'Alignment failed: no distinctive visual keypoints were found in the images.',
+        );
       }
 
       const matcher = scope.track(new cv.BFMatcher(cv.NORM_HAMMING, true));
@@ -285,7 +290,9 @@ export class ComputerVisionService {
         }
       }
       if (goodMatches.length < ALIGNMENT_MIN_MATCHES) {
-        throw new Error('Alignment failed: insufficient matching visual features were found between milestones.');
+        throw new ImageProcessingError(
+          'Alignment failed: insufficient matching visual features were found between milestones.',
+        );
       }
 
       const sourceCoordinates: number[] = [];
@@ -307,11 +314,15 @@ export class ComputerVisionService {
         cv.findHomography(sourcePoints, destinationPoints, cv.RANSAC, ALIGNMENT_RANSAC_THRESHOLD),
       );
       if (homography.empty()) {
-        throw new Error('Alignment failed: a perspective alignment matrix could not be determined.');
+        throw new ImageProcessingError(
+          'Alignment failed: a perspective alignment matrix could not be determined.',
+        );
       }
 
       if (!this.isSaneHomography(homography)) {
-        throw new Error('Alignment failed: the calculated perspective transform is too distorted.');
+        throw new ImageProcessingError(
+          'Alignment failed: the calculated perspective transform is too distorted.',
+        );
       }
 
       const aligned = scope.track(new cv.Mat());
@@ -333,7 +344,11 @@ export class ComputerVisionService {
     }
   }
 
-  private isSaneHomography(homography: { rows: number; cols: number; doubleAt(row: number, column: number): number }): boolean {
+  private isSaneHomography(homography: {
+    rows: number;
+    cols: number;
+    doubleAt(row: number, column: number): number;
+  }): boolean {
     if (homography.rows !== 3 || homography.cols !== 3) return false;
 
     let h0 = homography.doubleAt(0, 0);
