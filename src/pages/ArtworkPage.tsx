@@ -19,7 +19,6 @@ import { TimelapseStudio } from '../components/artwork/TimelapseStudio';
 import { CropModal } from '../components/artwork/CropModal';
 import { Loader2, History, Video, AlertTriangle } from 'lucide-react';
 import toast from 'react-hot-toast';
-import heic2any from 'heic2any';
 
 const VIDEO_WIDTH = 1920;
 const VIDEO_HEIGHT = 1080;
@@ -203,6 +202,7 @@ export default function ArtworkPage() {
       /\.(heic|heif)$/i.test(file.name);
     if (!isHeic) return file;
 
+    const { default: heic2any } = await import('heic2any');
     const converted = await heic2any({ blob: file, toType: 'image/jpeg', quality: 0.95 });
     const convertedBlob = Array.isArray(converted) ? converted[0] : converted;
     if (!convertedBlob) throw new Error(`HEIC conversion returned no image for ${file.name}`);
