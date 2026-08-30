@@ -29,6 +29,7 @@ export default function Dashboard() {
       user.uid,
       (data) => {
         setArtworks(data);
+        setLoadError(null);
         setLoading(false);
       },
       (error) => {
