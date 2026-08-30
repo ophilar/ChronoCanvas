@@ -4,6 +4,7 @@ import {
   canvasBoundsToCrop,
   createStorageObjectPath,
   createTimelapseTiming,
+  getMilestoneMoveTarget,
 } from '../src/lib/workflow';
 
 test('canvasBoundsToCrop converts normalized bounds into an exact classic crop', () => {
@@ -34,6 +35,14 @@ test('canvasBoundsToCrop rejects invalid detector output instead of inventing a 
     () => canvasBoundsToCrop({ ymin: -0.1, xmin: 0.1, ymax: 0.8, xmax: 0.9 }, 1000, 800),
     /Invalid canvas bounds/,
   );
+});
+
+test('getMilestoneMoveTarget keeps the baseline first', () => {
+  assert.equal(getMilestoneMoveTarget(0, 'down', 3), null);
+  assert.equal(getMilestoneMoveTarget(1, 'up', 3), null);
+  assert.equal(getMilestoneMoveTarget(1, 'down', 3), 2);
+  assert.equal(getMilestoneMoveTarget(2, 'up', 3), 1);
+  assert.equal(getMilestoneMoveTarget(2, 'down', 3), null);
 });
 
 test('createTimelapseTiming honors the configured frame interval for cut transitions', () => {
