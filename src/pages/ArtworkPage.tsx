@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router';
-import { doc, getDoc } from 'firebase/firestore';
-import { db } from '../firebase';
 import { useAuth } from '../context/AuthContext';
 import {
+  getArtwork,
   subscribeToLayers,
   createLayer,
   replaceLayerImage,
@@ -11,8 +10,8 @@ import {
   deleteLayer,
   deleteArtworkComplete,
 } from '../lib/api';
-import { createTimelapseTiming } from '../lib/workflow';
-import { Artwork, Layer, WebGPUFilterOptions } from '../types';
+import { createTimelapseTiming, getMilestoneMoveTarget } from '../lib/workflow';
+import type { Artwork, Layer, WebGPUFilterOptions } from '../types';
 import { ArtworkCanvas } from '../components/artwork/ArtworkCanvas';
 import { MilestonesList } from '../components/artwork/MilestonesList';
 import { TimelapseStudio } from '../components/artwork/TimelapseStudio';
@@ -97,6 +96,16 @@ export default function ArtworkPage() {
     setPendingFileIndex(0);
   }, [revokeCurrentObjectUrl]);
 
+  const handleWebGpuError = useCallback((message: string) => {
+    toast.error(`${message} WebGPU remains enabled; disable it in Timelapse Studio to use standard rendering.`);
+  }, []);
+
+  const handleSelectLayer = useCallback((layerId: string) => {
+    setIsPlaying(false);
+    setPlaybackIndex(null);
+    setSelectedLayerId(layerId);
+  }, []);
+
   useEffect(() => closeCropSession, [closeCropSession]);
 
   useEffect(() => {
@@ -107,13 +116,13 @@ export default function ArtworkPage() {
       setLoading(true);
       setLoadError(null);
       try {
-        const docSnap = await getDoc(doc(db, 'artworks', id));
+        const loadedArtwork = await getArtwork(id);
         if (!active) return;
-        if (!docSnap.exists()) {
+        if (!loadedArtwork) {
           setLoadError('Artwork project not found.');
           return;
         }
-        setArtwork({ id: docSnap.id, ...docSnap.data() } as Artwork);
+        setArtwork(loadedArtwork);
       } catch (error) {
         if (!active) return;
         console.error('Fetch artwork error:', error);
@@ -290,8 +299,8 @@ export default function ArtworkPage() {
 
   const handleMoveLayer = async (index: number, direction: 'up' | 'down') => {
     if (!id) return;
-    const targetIndex = direction === 'up' ? index - 1 : index + 1;
-    if (targetIndex < 0 || targetIndex >= layers.length) return;
+    const targetIndex = getMilestoneMoveTarget(index, direction, layers.length);
+    if (targetIndex === null) return;
 
     const reorderedLayers = [...layers];
     const [moved] = reorderedLayers.splice(index, 1);
@@ -344,6 +353,8 @@ export default function ArtworkPage() {
 
     setGeneratingVideo(true);
     const toastId = toast.loading('Rendering 1080p timelapse frames...');
+    let captureStream: MediaStream | null = null;
+    let recorder: MediaRecorder | null = null;
 
     try {
       const loadedImages = await Promise.all(
@@ -365,8 +376,8 @@ export default function ArtworkPage() {
       const context = exportCanvas.getContext('2d');
       if (!context) throw new Error('Could not create video export canvas');
 
-      const stream = exportCanvas.captureStream(VIDEO_FPS);
-      const recorder = new MediaRecorder(stream, {
+      captureStream = exportCanvas.captureStream(VIDEO_FPS);
+      recorder = new MediaRecorder(captureStream, {
         mimeType: VIDEO_MIME_TYPE,
         videoBitsPerSecond: VIDEO_BIT_RATE,
       });
@@ -375,6 +386,7 @@ export default function ArtworkPage() {
         if (event.data.size > 0) recordedChunks.push(event.data);
       };
       const recordPromise = new Promise<Blob>((resolve, reject) => {
+        if (!recorder) throw new Error('MediaRecorder was not created.');
         recorder.onerror = () => reject(new Error('MediaRecorder failed while encoding the timelapse.'));
         recorder.onstop = () => resolve(new Blob(recordedChunks, { type: 'video/webm' }));
       });
@@ -435,6 +447,8 @@ export default function ArtworkPage() {
       console.error('Export video error:', error);
       toast.error(errorMessage(error), { id: toastId });
     } finally {
+      if (recorder?.state !== 'inactive') recorder?.stop();
+      captureStream?.getTracks().forEach((track) => track.stop());
       setGeneratingVideo(false);
     }
   };
@@ -457,7 +471,7 @@ export default function ArtworkPage() {
           <button
             type="button"
             onClick={() => navigate('/dashboard')}
-            className="mt-5 px-5 py-2 rounded-full bg-brand-text text-white text-xs font-bold uppercase tracking-wider hover:bg-black"
+            className="mt-5 px-5 py-2 rounded-full bg-brand-text text-white text-xs font-bold uppercase tracking-wider hover:bg-black cursor-pointer"
           >
             Back to portfolio
           </button>
@@ -491,9 +505,7 @@ export default function ArtworkPage() {
           onTogglePlay={togglePlay}
           onExportTimelapse={handleExportTimelapse}
           onRecalculateAlignment={handleRecalculateAlignment}
-          onWebGpuError={(message) => {
-            toast.error(`${message} WebGPU remains enabled; disable it in Timelapse Studio to use standard rendering.`);
-          }}
+          onWebGpuError={handleWebGpuError}
         />
       </div>
 
@@ -537,11 +549,7 @@ export default function ArtworkPage() {
             playbackIndex={playbackIndex}
             uploading={uploading}
             onDropFiles={handleDropFiles}
-            onSelectLayer={(layerId) => {
-              setIsPlaying(false);
-              setPlaybackIndex(null);
-              setSelectedLayerId(layerId);
-            }}
+            onSelectLayer={handleSelectLayer}
             onMoveLayer={handleMoveLayer}
             onDeleteLayer={handleDeleteLayer}
             onRecalculateAlignment={handleRecalculateAlignment}
