@@ -50,7 +50,9 @@ export const MilestonesList: React.FC<MilestonesListProps> = ({
     <section className="flex-1 overflow-hidden flex flex-col" aria-labelledby="progress-history-title">
       <div className="flex items-center justify-between gap-3 border-b border-brand-border px-4 sm:px-6 py-4 bg-brand-surface/30">
         <div>
-          <h2 id="progress-history-title" className="text-xs uppercase tracking-[0.2em] font-bold text-brand-text">Progress History</h2>
+          <h2 id="progress-history-title" className="text-xs uppercase tracking-[0.2em] font-bold text-brand-text">
+            Progress History
+          </h2>
           <p className="text-[10px] text-brand-muted mt-0.5">
             {layers.length} milestone{layers.length !== 1 ? 's' : ''} recorded
           </p>
@@ -61,14 +63,14 @@ export const MilestonesList: React.FC<MilestonesListProps> = ({
             <button
               type="button"
               onClick={onDeleteArtwork}
-              className="px-2.5 py-1 bg-red-600 text-white text-[9px] uppercase tracking-widest font-bold rounded hover:bg-red-700 transition-all shadow-sm"
+              className="px-2.5 py-1 bg-red-600 text-white text-[9px] uppercase tracking-widest font-bold rounded hover:bg-red-700 transition-all shadow-sm cursor-pointer"
             >
               Confirm
             </button>
             <button
               type="button"
               onClick={() => setConfirmDeleteArtwork(false)}
-              className="px-2 py-1 bg-gray-100 text-brand-text text-[9px] uppercase tracking-widest font-bold rounded hover:bg-gray-200 transition-colors border border-black/5"
+              className="px-2 py-1 bg-gray-100 text-brand-text text-[9px] uppercase tracking-widest font-bold rounded hover:bg-gray-200 transition-colors border border-black/5 cursor-pointer"
             >
               Cancel
             </button>
@@ -77,7 +79,7 @@ export const MilestonesList: React.FC<MilestonesListProps> = ({
           <button
             type="button"
             onClick={() => setConfirmDeleteArtwork(true)}
-            className="px-3 py-1 text-[10px] text-red-600 border border-red-200 rounded-full hover:bg-red-50 flex items-center gap-1.5 transition-colors font-semibold uppercase tracking-wider"
+            className="p-1 px-3 text-[10px] text-red-600 border border-red-200 rounded-full hover:bg-red-50 flex items-center gap-1.5 transition-colors font-semibold uppercase tracking-wider cursor-pointer"
           >
             <Trash2 className="w-3.5 h-3.5" />
             <span>Delete</span>
@@ -86,8 +88,8 @@ export const MilestonesList: React.FC<MilestonesListProps> = ({
       </div>
 
       <div className="flex-1 p-4 sm:p-6 space-y-4 overflow-y-visible md:overflow-y-auto">
-        <p className="text-[10px] text-brand-muted leading-relaxed p-3 bg-brand-surface rounded-lg border border-brand-border/40">
-          <strong>Frame alignment:</strong> keep the camera steady and include consistent artwork borders for smoother timelapse transitions.
+        <p className="text-[10px] text-brand-muted leading-relaxed mb-4 p-3 bg-brand-surface rounded-lg border border-brand-border/40 italic">
+          ✨ <strong>Paint Frame Alignment:</strong> Keep camera steady and capture milestones with consistent borders for smooth timelapse transitions.
         </p>
 
         <div
@@ -103,7 +105,7 @@ export const MilestonesList: React.FC<MilestonesListProps> = ({
             {uploading ? <Loader2 className="w-5 h-5 animate-spin" /> : <ImagePlus className="w-5 h-5" />}
           </div>
           <div className="text-[10px] uppercase tracking-widest font-bold text-brand-text">
-            Add progress milestones
+            Drop new progress milestones
           </div>
           <div className="text-[9px] text-brand-muted">Multiple files are processed in chronological order.</div>
         </div>
@@ -115,12 +117,14 @@ export const MilestonesList: React.FC<MilestonesListProps> = ({
               : selectedLayerId !== null
                 ? selectedLayerId === layer.id
                 : index === layers.length - 1;
+            const canMoveEarlier = index > 1;
+            const canMoveLater = index > 0 && index < layers.length - 1;
 
             return (
               <article
                 key={layer.id}
                 role="listitem"
-                className={`relative rounded-xl transition-all border ${
+                className={`group relative rounded-xl transition-all border ${
                   isCurrentlyDisplayed
                     ? 'bg-brand-surface border-brand-accent shadow-sm'
                     : 'bg-white border-brand-border hover:border-brand-accent/30 hover:bg-brand-surface/20'
@@ -130,7 +134,7 @@ export const MilestonesList: React.FC<MilestonesListProps> = ({
                   type="button"
                   onClick={() => onSelectLayer(layer.id)}
                   aria-current={isCurrentlyDisplayed ? 'true' : undefined}
-                  className="w-full flex gap-3 items-center p-3 pr-32 text-left rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-accent focus-visible:ring-inset"
+                  className="w-full flex gap-3 items-center p-3 pr-28 text-left rounded-xl cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-accent focus-visible:ring-inset"
                 >
                   <span className="w-12 h-12 bg-brand-surface rounded-lg overflow-hidden flex-shrink-0 border border-brand-border relative">
                     <img
@@ -157,21 +161,33 @@ export const MilestonesList: React.FC<MilestonesListProps> = ({
                   </span>
                 </button>
 
-                <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center bg-white/95 backdrop-blur rounded-full p-0.5 shadow-sm border border-brand-border z-20" role="group" aria-label={`Actions for milestone ${index + 1}`}>
+                <div
+                  className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center bg-white/95 backdrop-blur rounded-full p-0.5 shadow-sm border border-brand-border z-20"
+                  role="group"
+                  aria-label={`Actions for milestone ${index + 1}`}
+                >
                   <button
                     type="button"
-                    disabled={index === 0}
+                    disabled={!canMoveEarlier}
                     onClick={() => onMoveLayer(index, 'up')}
-                    className={`p-1 rounded-full ${index === 0 ? 'text-gray-300 cursor-not-allowed opacity-30' : 'text-brand-text hover:bg-brand-surface hover:text-brand-accent'}`}
+                    className={`p-1 rounded-full ${
+                      canMoveEarlier
+                        ? 'text-brand-text hover:bg-brand-surface hover:text-brand-accent cursor-pointer'
+                        : 'text-gray-300 cursor-not-allowed opacity-30'
+                    }`}
                     aria-label={`Move milestone ${index + 1} earlier`}
                   >
                     <ArrowLeft className="w-3.5 h-3.5 rotate-90" />
                   </button>
                   <button
                     type="button"
-                    disabled={index === layers.length - 1}
+                    disabled={!canMoveLater}
                     onClick={() => onMoveLayer(index, 'down')}
-                    className={`p-1 rounded-full ${index === layers.length - 1 ? 'text-gray-300 cursor-not-allowed opacity-30' : 'text-brand-text hover:bg-brand-surface hover:text-brand-accent'}`}
+                    className={`p-1 rounded-full ${
+                      canMoveLater
+                        ? 'text-brand-text hover:bg-brand-surface hover:text-brand-accent cursor-pointer'
+                        : 'text-gray-300 cursor-not-allowed opacity-30'
+                    }`}
                     aria-label={`Move milestone ${index + 1} later`}
                   >
                     <ArrowLeft className="w-3.5 h-3.5 -rotate-90" />
@@ -179,7 +195,7 @@ export const MilestonesList: React.FC<MilestonesListProps> = ({
                   <button
                     type="button"
                     onClick={() => onRecalculateAlignment(layer)}
-                    className="p-1 rounded-full text-brand-text hover:bg-brand-surface hover:text-brand-accent"
+                    className="p-1 rounded-full text-brand-text hover:bg-brand-surface hover:text-brand-accent cursor-pointer"
                     aria-label={`Reframe milestone ${index + 1}`}
                   >
                     <Crop className="w-3.5 h-3.5 text-brand-accent" />
@@ -187,7 +203,7 @@ export const MilestonesList: React.FC<MilestonesListProps> = ({
                   <button
                     type="button"
                     onClick={() => setDeletingLayerId(layer.id)}
-                    className="p-1 rounded-full text-red-500 hover:bg-red-50 hover:text-red-700 transition"
+                    className="p-1 rounded-full text-red-500 hover:bg-red-50 hover:text-red-700 transition cursor-pointer"
                     aria-label={`Delete milestone ${index + 1}`}
                   >
                     <Trash2 className="w-3.5 h-3.5" />
@@ -195,7 +211,7 @@ export const MilestonesList: React.FC<MilestonesListProps> = ({
                 </div>
 
                 {deletingLayerId === layer.id && (
-                  <div className="absolute inset-0 bg-white z-30 flex items-center justify-between gap-3 px-4 rounded-xl border border-red-200">
+                  <div className="absolute inset-0 bg-white/98 z-30 flex items-center justify-between gap-3 px-4 rounded-xl border border-red-200">
                     <span className="text-[10px] font-black uppercase tracking-wider text-red-600">Delete milestone?</span>
                     <div className="flex gap-1.5">
                       <button
@@ -204,14 +220,14 @@ export const MilestonesList: React.FC<MilestonesListProps> = ({
                           onDeleteLayer(layer.id, layer.imageUrl);
                           setDeletingLayerId(null);
                         }}
-                        className="px-2.5 py-1 bg-red-600 text-white text-[9px] uppercase tracking-widest font-black rounded hover:bg-red-700 transition"
+                        className="px-2.5 py-1 bg-red-600 text-white text-[9px] uppercase tracking-widest font-black rounded hover:bg-red-700 transition cursor-pointer"
                       >
                         Delete
                       </button>
                       <button
                         type="button"
                         onClick={() => setDeletingLayerId(null)}
-                        className="px-2.5 py-1 bg-white border border-brand-border text-brand-text text-[9px] uppercase tracking-widest font-bold rounded hover:bg-brand-surface transition"
+                        className="px-2.5 py-1 bg-white border border-brand-border text-brand-text text-[9px] uppercase tracking-widest font-bold rounded hover:bg-brand-surface transition cursor-pointer"
                       >
                         Cancel
                       </button>
@@ -225,7 +241,7 @@ export const MilestonesList: React.FC<MilestonesListProps> = ({
 
         {layers.length === 0 && (
           <div className="text-center py-8 text-brand-muted text-[10px] uppercase tracking-wider font-bold">
-            No milestones recorded
+            No layering history available
           </div>
         )}
       </div>
