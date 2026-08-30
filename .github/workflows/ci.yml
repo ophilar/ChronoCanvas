@@ -44,10 +44,11 @@ jobs:
           server_pid=$!
           trap 'kill "$server_pid" 2>/dev/null || true' EXIT
 
+          ready=0
           for attempt in {1..20}; do
             if curl --fail --silent --show-error http://127.0.0.1:${PORT}/artwork/smoke > smoke-response.html; then
-              grep --quiet '<div id="root"></div>' smoke-response.html
-              exit 0
+              ready=1
+              break
             fi
             if ! kill -0 "$server_pid" 2>/dev/null; then
               cat server-smoke.log
@@ -56,5 +57,20 @@ jobs:
             sleep 0.25
           done
 
-          cat server-smoke.log
-          exit 1
+          if [ "$ready" -ne 1 ]; then
+            cat server-smoke.log
+            exit 1
+          fi
+          grep --quiet '<div id="root"></div>' smoke-response.html
+
+          api_status=$(curl --silent --output api-response.json --write-out '%{http_code}' http://127.0.0.1:${PORT}/api/missing)
+          test "$api_status" = '404'
+          grep --quiet 'API route not found' api-response.json
+
+          json_status=$(curl --silent --output json-response.json --write-out '%{http_code}' \
+            --request POST \
+            --header 'Content-Type: application/json' \
+            --data '{' \
+            http://127.0.0.1:${PORT}/api/detect-canvas-bounds)
+          test "$json_status" = '400'
+          grep --quiet 'Request body contains invalid JSON' json-response.json
