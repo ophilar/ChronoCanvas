@@ -1,0 +1,16 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function ownsPath(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    match /users/{userId}/artworks/{artworkId}/layers/{fileName} {
+      allow read: if ownsPath(userId);
+      allow create, update: if ownsPath(userId)
+                            && request.resource.size <= 20 * 1024 * 1024
+                            && request.resource.contentType.matches('image/(jpeg|png|webp)');
+      allow delete: if ownsPath(userId);
+    }
+  }
+}

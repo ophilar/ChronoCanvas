@@ -1,6 +1,6 @@
 import React from 'react';
 import { Play, Pause, SkipBack, SkipForward, Download, Loader2, Sparkles, Cpu } from 'lucide-react';
-import { Layer, WebGPUFilterOptions } from '../../types';
+import type { Layer, WebGPUFilterOptions } from '../../types';
 
 interface TimelapseStudioProps {
   layers: Layer[];
@@ -47,12 +47,11 @@ export const TimelapseStudio: React.FC<TimelapseStudioProps> = ({
     playbackIndex !== null
       ? playbackIndex
       : selectedLayerId !== null
-      ? layers.findIndex((l) => l.id === selectedLayerId)
-      : layers.length - 1;
+        ? layers.findIndex((layer) => layer.id === selectedLayerId)
+        : layers.length - 1;
 
   return (
     <div className="flex-1 overflow-y-visible md:overflow-y-auto p-6 space-y-6">
-      {/* Playback Controls Card */}
       <div className="bg-brand-surface p-5 rounded-2xl border border-brand-border space-y-4 shadow-sm">
         <div className="flex items-center justify-between">
           <span className="text-[10px] uppercase tracking-[0.2em] font-bold text-brand-muted">
@@ -63,18 +62,19 @@ export const TimelapseStudio: React.FC<TimelapseStudioProps> = ({
           </span>
         </div>
 
-        {/* Playback Buttons */}
         <div className="flex items-center justify-center gap-3 py-2">
           <button
+            type="button"
             onClick={() => onStepFrame(-1)}
             disabled={layers.length < 2}
             className="p-2.5 rounded-full bg-white border border-brand-border text-brand-text hover:bg-brand-surface disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer shadow-sm"
-            title="Previous Frame"
+            aria-label="Previous frame"
           >
             <SkipBack className="w-4 h-4" />
           </button>
 
           <button
+            type="button"
             onClick={onTogglePlay}
             disabled={layers.length < 2}
             className="px-6 py-3 rounded-full bg-brand-accent text-white font-bold text-xs uppercase tracking-widest hover:scale-105 transition-all flex items-center gap-2 shadow-md disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
@@ -93,28 +93,39 @@ export const TimelapseStudio: React.FC<TimelapseStudioProps> = ({
           </button>
 
           <button
+            type="button"
             onClick={() => onStepFrame(1)}
             disabled={layers.length < 2}
             className="p-2.5 rounded-full bg-white border border-brand-border text-brand-text hover:bg-brand-surface disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer shadow-sm"
-            title="Next Frame"
+            aria-label="Next frame"
           >
             <SkipForward className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Scrubber Progress Bar */}
         {layers.length > 0 && (
           <div className="space-y-1.5 pt-1">
             <div className="flex justify-between text-[9px] font-mono font-bold text-brand-muted uppercase">
               <span>Frame {Math.max(0, currentActiveIndex) + 1}</span>
               <span>Total {layers.length}</span>
             </div>
-            <div className="h-2 bg-brand-border/60 rounded-full overflow-hidden flex gap-0.5">
-              {layers.map((_, i) => (
+            <div
+              className="h-2 bg-brand-border/60 rounded-full overflow-hidden flex gap-0.5"
+              role="progressbar"
+              aria-label="Timelapse frame position"
+              aria-valuemin={1}
+              aria-valuemax={layers.length}
+              aria-valuenow={Math.max(0, currentActiveIndex) + 1}
+            >
+              {layers.map((layer, index) => (
                 <div
-                  key={i}
+                  key={layer.id}
                   className={`flex-1 transition-colors ${
-                    i === currentActiveIndex ? 'bg-brand-accent' : i < currentActiveIndex ? 'bg-brand-text/70' : 'bg-transparent'
+                    index === currentActiveIndex
+                      ? 'bg-brand-accent'
+                      : index < currentActiveIndex
+                        ? 'bg-brand-text/70'
+                        : 'bg-transparent'
                   }`}
                 />
               ))}
@@ -123,37 +134,39 @@ export const TimelapseStudio: React.FC<TimelapseStudioProps> = ({
         )}
       </div>
 
-      {/* Speed & Delay Presets */}
       <div className="space-y-2">
-        <label className="text-[10px] uppercase tracking-widest font-bold text-brand-text block">
+        <span className="text-[10px] uppercase tracking-widest font-bold text-brand-text block">
           Frame Interval ({frameDelay / 1000}s)
-        </label>
-        <div className="grid grid-cols-4 gap-1.5">
-          {[200, 500, 1000, 1500].map((d) => (
+        </span>
+        <div className="grid grid-cols-4 gap-1.5" role="group" aria-label="Frame interval">
+          {[200, 500, 1000, 1500].map((delay) => (
             <button
-              key={d}
-              onClick={() => onSetFrameDelay(d)}
+              type="button"
+              key={delay}
+              onClick={() => onSetFrameDelay(delay)}
+              aria-pressed={frameDelay === delay}
               className={`py-2 text-[10px] font-mono font-bold rounded-lg border transition cursor-pointer ${
-                frameDelay === d
+                frameDelay === delay
                   ? 'bg-brand-text text-white border-brand-text shadow-sm'
                   : 'bg-white text-brand-muted border-brand-border hover:border-brand-accent/40'
               }`}
             >
-              {d / 1000}s
+              {delay / 1000}s
             </button>
           ))}
         </div>
       </div>
 
-      {/* Transition Style & Loop Options */}
       <div className="space-y-3 pt-2">
         <div className="space-y-1.5">
-          <label className="text-[10px] uppercase tracking-widest font-bold text-brand-text block">
+          <span className="text-[10px] uppercase tracking-widest font-bold text-brand-text block">
             Transition Style
-          </label>
-          <div className="grid grid-cols-2 gap-2">
+          </span>
+          <div className="grid grid-cols-2 gap-2" role="group" aria-label="Transition style">
             <button
+              type="button"
               onClick={() => onSetTransitionEffect('fade')}
+              aria-pressed={transitionEffect === 'fade'}
               className={`py-2 px-3 text-[10px] font-bold uppercase tracking-wider rounded-lg border transition cursor-pointer ${
                 transitionEffect === 'fade'
                   ? 'bg-brand-text text-white border-brand-text'
@@ -163,7 +176,9 @@ export const TimelapseStudio: React.FC<TimelapseStudioProps> = ({
               Smooth Fade
             </button>
             <button
+              type="button"
               onClick={() => onSetTransitionEffect('cut')}
+              aria-pressed={transitionEffect === 'cut'}
               className={`py-2 px-3 text-[10px] font-bold uppercase tracking-wider rounded-lg border transition cursor-pointer ${
                 transitionEffect === 'cut'
                   ? 'bg-brand-text text-white border-brand-text'
@@ -175,94 +190,97 @@ export const TimelapseStudio: React.FC<TimelapseStudioProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center justify-between p-3 bg-brand-surface rounded-xl border border-brand-border">
+        <label className="flex items-center justify-between p-3 bg-brand-surface rounded-xl border border-brand-border cursor-pointer">
           <span className="text-[10px] uppercase tracking-wider font-bold text-brand-text">
             Continuous Loop
           </span>
           <input
             type="checkbox"
             checked={loopPlayback}
-            onChange={(e) => onSetLoopPlayback(e.target.checked)}
+            onChange={(event) => onSetLoopPlayback(event.target.checked)}
             className="w-4 h-4 accent-brand-accent rounded cursor-pointer"
           />
-        </div>
+        </label>
       </div>
 
-      {/* WebGPU Hardware Acceleration Panel */}
       <div className="p-4 bg-brand-surface rounded-xl border border-brand-border space-y-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1.5">
+        <label className="flex items-center justify-between cursor-pointer">
+          <span className="flex items-center gap-1.5">
             <Cpu className="w-3.5 h-3.5 text-brand-accent" />
             <span className="text-[10px] uppercase tracking-wider font-extrabold text-brand-text">
               WebGPU Engine
             </span>
-          </div>
+          </span>
           <input
             type="checkbox"
             checked={enableWebGPU}
-            onChange={(e) => onSetEnableWebGPU(e.target.checked)}
+            onChange={(event) => onSetEnableWebGPU(event.target.checked)}
             className="w-4 h-4 accent-brand-accent rounded cursor-pointer"
           />
-        </div>
+        </label>
 
         {enableWebGPU && (
           <div className="space-y-2.5 pt-2 border-t border-brand-border/60">
             <div>
-              <div className="flex justify-between text-[9px] font-mono font-bold text-brand-muted mb-1">
+              <label htmlFor="timelapse-brightness" className="flex justify-between text-[9px] font-mono font-bold text-brand-muted mb-1">
                 <span>Brightness</span>
                 <span>{webGpuOptions.brightness.toFixed(2)}x</span>
-              </div>
+              </label>
               <input
+                id="timelapse-brightness"
                 type="range"
                 min="0.5"
                 max="2.0"
                 step="0.05"
                 value={webGpuOptions.brightness}
-                onChange={(e) =>
-                  onSetWebGpuOptions((prev) => ({ ...prev, brightness: parseFloat(e.target.value) }))
+                onChange={(event) =>
+                  onSetWebGpuOptions((previous) => ({ ...previous, brightness: Number.parseFloat(event.target.value) }))
                 }
                 className="w-full h-1.5 bg-brand-border rounded-lg accent-brand-accent cursor-pointer"
               />
             </div>
 
             <div>
-              <div className="flex justify-between text-[9px] font-mono font-bold text-brand-muted mb-1">
+              <label htmlFor="timelapse-contrast" className="flex justify-between text-[9px] font-mono font-bold text-brand-muted mb-1">
                 <span>Contrast</span>
                 <span>{webGpuOptions.contrast.toFixed(2)}x</span>
-              </div>
+              </label>
               <input
+                id="timelapse-contrast"
                 type="range"
                 min="0.5"
                 max="2.0"
                 step="0.05"
                 value={webGpuOptions.contrast}
-                onChange={(e) =>
-                  onSetWebGpuOptions((prev) => ({ ...prev, contrast: parseFloat(e.target.value) }))
+                onChange={(event) =>
+                  onSetWebGpuOptions((previous) => ({ ...previous, contrast: Number.parseFloat(event.target.value) }))
                 }
                 className="w-full h-1.5 bg-brand-border rounded-lg accent-brand-accent cursor-pointer"
               />
             </div>
 
             <div>
-              <div className="flex justify-between text-[9px] font-mono font-bold text-brand-muted mb-1">
+              <label htmlFor="timelapse-saturation" className="flex justify-between text-[9px] font-mono font-bold text-brand-muted mb-1">
                 <span>Saturation</span>
                 <span>{webGpuOptions.saturation.toFixed(2)}x</span>
-              </div>
+              </label>
               <input
+                id="timelapse-saturation"
                 type="range"
                 min="0.0"
                 max="2.0"
                 step="0.05"
                 value={webGpuOptions.saturation}
-                onChange={(e) =>
-                  onSetWebGpuOptions((prev) => ({ ...prev, saturation: parseFloat(e.target.value) }))
+                onChange={(event) =>
+                  onSetWebGpuOptions((previous) => ({ ...previous, saturation: Number.parseFloat(event.target.value) }))
                 }
                 className="w-full h-1.5 bg-brand-border rounded-lg accent-brand-accent cursor-pointer"
               />
             </div>
 
             <button
-              onClick={() => onSetWebGpuOptions({ brightness: 1.0, contrast: 1.0, saturation: 1.0 })}
+              type="button"
+              onClick={() => onSetWebGpuOptions({ brightness: 1, contrast: 1, saturation: 1 })}
               className="w-full py-1 text-[9px] uppercase tracking-widest font-bold text-brand-muted hover:text-brand-text transition cursor-pointer"
             >
               Reset Shaders
@@ -271,7 +289,6 @@ export const TimelapseStudio: React.FC<TimelapseStudioProps> = ({
         )}
       </div>
 
-      {/* Export Action Card */}
       <div className="p-4 bg-brand-surface rounded-xl border border-brand-border space-y-3">
         <div className="flex items-center gap-1.5">
           <Sparkles className="w-3.5 h-3.5 text-brand-accent" />
@@ -283,6 +300,7 @@ export const TimelapseStudio: React.FC<TimelapseStudioProps> = ({
           Renders a smooth 1080p WebM video file compiled directly from your progression milestones.
         </p>
         <button
+          type="button"
           onClick={onExportTimelapse}
           disabled={layers.length < 2 || generating}
           className="w-full py-3 bg-brand-text text-white text-[10px] uppercase tracking-widest font-bold rounded-xl hover:bg-black transition-all flex items-center justify-center gap-2 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"

@@ -10,12 +10,10 @@ export interface Artwork {
 
 export interface Layer {
   id: string;
-  artworkId: string;
   imageUrl: string;
   notes?: string;
   techniques?: string[];
   colorPaletteSuggestions?: string[];
-  ownerId: string;
   createdAt: string;
   order?: number;
 }
@@ -37,7 +35,7 @@ export interface CanvasBounds {
 }
 
 export interface WebGPUFilterOptions {
-  brightness: number;  // Multiplier: 0.5 to 2.0
-  contrast: number;    // Coefficient: 0.5 to 2.0
-  saturation: number;  // Coefficient: 0.0 to 2.0
+  brightness: number;
+  contrast: number;
+  saturation: number;
 }

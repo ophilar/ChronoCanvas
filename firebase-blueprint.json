@@ -16,10 +16,9 @@
     },
     "Layer": {
       "title": "Layer / Photo",
-      "description": "A progress photo of an artwork.",
+      "description": "A progress photo nested under its artwork; ownership is inherited from the parent artwork.",
       "type": "object",
       "properties": {
-        "artworkId": { "type": "string" },
         "imageUrl": { "type": "string" },
         "notes": { "type": "string" },
         "techniques": {
@@ -30,10 +29,10 @@
           "type": "array",
           "items": { "type": "string" }
         },
-        "ownerId": { "type": "string" },
-        "createdAt": { "type": "string", "format": "timestamp" }
+        "createdAt": { "type": "string", "format": "timestamp" },
+        "order": { "type": "number" }
       },
-      "required": ["artworkId", "imageUrl", "ownerId", "createdAt"]
+      "required": ["imageUrl", "createdAt"]
     }
   },
   "firestore": {
@@ -43,7 +42,7 @@
     },
     "/artworks/{artworkId}/layers/{layerId}": {
       "schema": { "$ref": "#/entities/Layer" },
-      "description": "Progress photos (layers) for a specific artwork."
+      "description": "Progress photos for a specific artwork."
     }
   }
 }
