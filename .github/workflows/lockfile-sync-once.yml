@@ -1,0 +1,24 @@
+name: One-time lockfile synchronization
+on:
+  push:
+    branches: [security/multer-2-5-0-20261105]
+permissions:
+  contents: write
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Resolve patched dependency tree
+        run: |
+          npm install --package-lock-only --ignore-scripts
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          if ! git diff --quiet -- package-lock.json; then
+            git add package-lock.json
+            git commit -m 'security(deps): synchronize patched glob and minimatch lockfile'
+            git push origin HEAD:security/multer-2-5-0-20261105
+          fi
