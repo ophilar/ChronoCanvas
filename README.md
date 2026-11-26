@@ -17,7 +17,7 @@ AI Studio provides `GEMINI_API_KEY` to the server-side environment. Configure `G
 
 ## Local development
 
-Prerequisites: Node.js 24 LTS and npm.
+Prerequisites: Node.js 26 LTS and npm.
 
 1. Install exactly the committed dependencies:
    `npm ci`
