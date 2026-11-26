@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-const normalizedCoordinateSchema = z.number().finite().min(0).max(1);
+const normalizedCoordinateSchema = z.number().min(0).max(1);
 
 export const imageMimeTypeSchema = z.enum([
   'image/jpeg',
@@ -11,24 +11,20 @@ export const imageMimeTypeSchema = z.enum([
 
 export const detectionMethodSchema = z.enum(['opencv', 'gemini']);
 
-export const perspectivePointSchema = z
-  .object({
+export const perspectivePointSchema = z.strictObject({
     x: normalizedCoordinateSchema,
     y: normalizedCoordinateSchema,
-  })
-  .strict();
+  });
 
 export const perspectivePointsSchema = z.array(perspectivePointSchema).length(4);
 export type PerspectivePoint = z.infer<typeof perspectivePointSchema>;
 
-export const geminiBoundsSchema = z
-  .object({
+export const geminiBoundsSchema = z.strictObject({
     ymin: normalizedCoordinateSchema,
     xmin: normalizedCoordinateSchema,
     ymax: normalizedCoordinateSchema,
     xmax: normalizedCoordinateSchema,
   })
-  .strict()
   .refine((bounds) => bounds.xmin < bounds.xmax && bounds.ymin < bounds.ymax, {
     message: 'Canvas bounds must have positive normalized extents.',
   });
@@ -47,16 +43,14 @@ export const dataUrlSchema = z
   .pipe(
     z.object({
       mimeType: imageMimeTypeSchema,
-      data: z.string().min(1),
+      data: z.base64().min(1),
     }),
   );
 
-export const detectionRequestBodySchema = z
-  .object({
+export const detectionRequestBodySchema = z.strictObject({
     method: detectionMethodSchema,
     image: dataUrlSchema.optional(),
-  })
-  .strict();
+  });
 
 const perspectivePointsJsonSchema = z.string().transform((value, context): unknown => {
   try {
@@ -70,8 +64,6 @@ const perspectivePointsJsonSchema = z.string().transform((value, context): unkno
   }
 });
 
-export const perspectiveRequestBodySchema = z
-  .object({
+export const perspectiveRequestBodySchema = z.strictObject({
     points: perspectivePointsJsonSchema.pipe(perspectivePointsSchema),
-  })
-  .strict();
+  });

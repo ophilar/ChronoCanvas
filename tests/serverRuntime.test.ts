@@ -11,6 +11,8 @@ import {
   detectionMethodSchema,
   geminiBoundsSchema,
   perspectivePointsSchema,
+  detectionRequestBodySchema,
+  perspectiveRequestBodySchema,
 } from '../src/server/schemas';
 
 test('server schemas reject missing and malformed values without defaults', () => {
@@ -60,6 +62,20 @@ test('server schemas reject missing and malformed values without defaults', () =
   });
   assert.throws(() => dataUrlSchema.parse('image/png;base64,AA=='));
   assert.throws(() => dataUrlSchema.parse('data:image/svg+xml;base64,AA=='));
+  for (const invalid of ['A', 'AA=', 'AAA==', 'A===', 'AA==AA==']) {
+    assert.throws(() => dataUrlSchema.parse(`data:image/png;base64,${invalid}`));
+  }
+  assert.deepEqual(dataUrlSchema.parse('data:image/png;base64,AAAA'), {
+    mimeType: 'image/png', data: 'AAAA',
+  });
+  assert.throws(() => detectionRequestBodySchema.parse({ method: 'opencv', extra: true }));
+  assert.throws(() => perspectiveRequestBodySchema.parse({ points: '[]', extra: true }));
+  assert.throws(() => perspectivePointsSchema.parse([
+    { x: 0, y: 0, extra: true }, { x: 1, y: 0 }, { x: 1, y: 1 }, { x: 0, y: 1 },
+  ]));
+  for (const invalidCoordinate of [NaN, Infinity, -Infinity]) {
+    assert.throws(() => geminiBoundsSchema.parse({ ymin: 0, xmin: 0, ymax: 1, xmax: invalidCoordinate }));
+  }
 });
 
 test('decoded image dimensions are bounded before CV allocation', () => {
