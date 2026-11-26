@@ -31,14 +31,8 @@ jobs:
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=moderate
 
-      - name: Type-check and validate rules
-        run: npm run lint
-
-      - name: Run regression tests
-        run: npm test
-
-      - name: Build production artifacts
-        run: npm run build
+      - name: Validate, test and build production artifacts
+        run: npm run check
 
       - name: Smoke-test production server
         env:
