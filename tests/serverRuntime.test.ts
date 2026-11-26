@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createCanvas } from 'canvas';
+import { createCanvas, loadImage } from 'canvas';
 import { isHttpError } from 'http-errors';
 import {
   assertImageDimensions,
@@ -162,4 +162,22 @@ test('perspective warp rejects coordinates outside normalized image bounds', asy
       return true;
     },
   );
+});
+
+test('perspective warp preserves the dimensions and interior RGBA pixels of an identity transform', async () => {
+  const canvas = createCanvas(80, 48);
+  const context = canvas.getContext('2d');
+  context.fillStyle = 'rgb(25, 100, 200)';
+  context.fillRect(0, 0, canvas.width, canvas.height);
+
+  const service = new ComputerVisionService();
+  const result = await service.warpPerspective(canvas.toBuffer('image/png'), [
+    { x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }, { x: 0, y: 1 },
+  ]);
+  const image = await loadImage(result);
+  assert.equal(image.width, canvas.width);
+  assert.equal(image.height, canvas.height);
+  const decoded = createCanvas(image.width, image.height).getContext('2d');
+  decoded.drawImage(image, 0, 0);
+  assert.deepEqual([...decoded.getImageData(40, 24, 1, 1).data], [25, 100, 200, 255]);
 });

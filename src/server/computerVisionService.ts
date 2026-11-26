@@ -79,6 +79,22 @@ function validatePerspectivePoints(points: PerspectivePoint[]): void {
   }
 }
 
+function rasterizeImage(image: Awaited<ReturnType<typeof loadImage>>): ImageDataLike {
+  const canvas = createCanvas(image.width, image.height);
+  const context = canvas.getContext('2d');
+  context.drawImage(image, 0, 0);
+  return context.getImageData(0, 0, image.width, image.height);
+}
+
+function encodeRgbaPng(mat: { cols: number; rows: number; data: Uint8Array }): Buffer {
+  const canvas = createCanvas(mat.cols, mat.rows);
+  const context = canvas.getContext('2d');
+  const imageData = context.createImageData(mat.cols, mat.rows);
+  imageData.data.set(new Uint8ClampedArray(mat.data));
+  context.putImageData(imageData, 0, 0);
+  return canvas.toBuffer('image/png');
+}
+
 export class ComputerVisionService {
   private readonly cvPromise: Promise<OpenCv> = Promise.resolve(cvModule);
 
@@ -134,10 +150,7 @@ export class ComputerVisionService {
   async detectCanvasBounds(buffer: Buffer): Promise<CanvasBounds> {
     const cv = await this.getOpenCv();
     const image = await this.decodeImage(buffer);
-    const canvas = createCanvas(image.width, image.height);
-    const context = canvas.getContext('2d');
-    context.drawImage(image, 0, 0);
-    const imageData = context.getImageData(0, 0, image.width, image.height);
+    const imageData = rasterizeImage(image);
     const scope = new CvResourceScope();
 
     try {
@@ -201,10 +214,7 @@ export class ComputerVisionService {
       throw createError(422, 'Perspective coordinates describe a degenerate quadrilateral.');
     }
 
-    const canvas = createCanvas(width, height);
-    const context = canvas.getContext('2d');
-    context.drawImage(image, 0, 0);
-    const imageData = context.getImageData(0, 0, width, height);
+    const imageData = rasterizeImage(image);
     const scope = new CvResourceScope();
 
     try {
@@ -227,12 +237,7 @@ export class ComputerVisionService {
       const warped = scope.track(new cv.Mat());
       cv.warpPerspective(source, warped, transform, new cv.Size(outputWidth, outputHeight));
 
-      const outputCanvas = createCanvas(warped.cols, warped.rows);
-      const outputContext = outputCanvas.getContext('2d');
-      const outputImageData = outputContext.createImageData(warped.cols, warped.rows);
-      outputImageData.data.set(new Uint8ClampedArray(warped.data));
-      outputContext.putImageData(outputImageData, 0, 0);
-      return outputCanvas.toBuffer('image/png');
+      return encodeRgbaPng(warped);
     } finally {
       scope.dispose();
     }
@@ -243,15 +248,8 @@ export class ComputerVisionService {
     const baseImage = await this.decodeImage(baseBuffer);
     const targetImage = await this.decodeImage(targetBuffer);
 
-    const baseCanvas = createCanvas(baseImage.width, baseImage.height);
-    const baseContext = baseCanvas.getContext('2d');
-    baseContext.drawImage(baseImage, 0, 0);
-    const baseData = baseContext.getImageData(0, 0, baseImage.width, baseImage.height);
-
-    const targetCanvas = createCanvas(targetImage.width, targetImage.height);
-    const targetContext = targetCanvas.getContext('2d');
-    targetContext.drawImage(targetImage, 0, 0);
-    const targetData = targetContext.getImageData(0, 0, targetImage.width, targetImage.height);
+    const baseData = rasterizeImage(baseImage);
+    const targetData = rasterizeImage(targetImage);
     const scope = new CvResourceScope();
 
     try {
@@ -328,12 +326,7 @@ export class ComputerVisionService {
         new cv.Size(base.rawMat.cols, base.rawMat.rows),
       );
 
-      const outputCanvas = createCanvas(aligned.cols, aligned.rows);
-      const outputContext = outputCanvas.getContext('2d');
-      const outputImageData = outputContext.createImageData(aligned.cols, aligned.rows);
-      outputImageData.data.set(new Uint8ClampedArray(aligned.data));
-      outputContext.putImageData(outputImageData, 0, 0);
-      return outputCanvas.toBuffer('image/png');
+      return encodeRgbaPng(aligned);
     } finally {
       scope.dispose();
     }
