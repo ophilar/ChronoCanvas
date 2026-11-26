@@ -1,14 +1,9 @@
 import cvModule from '@techstark/opencv-js';
 import { createCanvas, loadImage } from 'canvas';
 import createError, { isHttpError } from 'http-errors';
-import type { PerspectivePoint } from './schemas';
+import type { CanvasBounds, PerspectivePoint } from './schemas';
 
-export interface CanvasBounds {
-  ymin: number;
-  xmin: number;
-  ymax: number;
-  xmax: number;
-}
+export type { CanvasBounds } from './schemas';
 
 interface CvDisposable {
   delete(): void;

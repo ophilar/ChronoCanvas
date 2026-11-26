@@ -19,15 +19,21 @@ export const perspectivePointSchema = z.strictObject({
 export const perspectivePointsSchema = z.array(perspectivePointSchema).length(4);
 export type PerspectivePoint = z.infer<typeof perspectivePointSchema>;
 
-export const geminiBoundsSchema = z.strictObject({
-    ymin: normalizedCoordinateSchema,
-    xmin: normalizedCoordinateSchema,
-    ymax: normalizedCoordinateSchema,
-    xmax: normalizedCoordinateSchema,
-  })
-  .refine((bounds) => bounds.xmin < bounds.xmax && bounds.ymin < bounds.ymax, {
-    message: 'Canvas bounds must have positive normalized extents.',
-  });
+const canvasBoundsObjectSchema = z.strictObject({
+  ymin: normalizedCoordinateSchema,
+  xmin: normalizedCoordinateSchema,
+  ymax: normalizedCoordinateSchema,
+  xmax: normalizedCoordinateSchema,
+});
+
+// Gemini can enforce the coordinate ranges; local validation also enforces
+// the cross-field ordering, which is not expressible in its JSON Schema subset.
+export const geminiBoundsJsonSchema = z.toJSONSchema(canvasBoundsObjectSchema);
+export const geminiBoundsSchema = canvasBoundsObjectSchema.refine(
+  (bounds) => bounds.xmin < bounds.xmax && bounds.ymin < bounds.ymax,
+  { message: 'Canvas bounds must have positive normalized extents.' },
+);
+export type CanvasBounds = z.infer<typeof geminiBoundsSchema>;
 
 export const dataUrlSchema = z
   .string()

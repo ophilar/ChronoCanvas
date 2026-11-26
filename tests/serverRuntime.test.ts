@@ -10,6 +10,7 @@ import {
   dataUrlSchema,
   detectionMethodSchema,
   geminiBoundsSchema,
+  geminiBoundsJsonSchema,
   perspectivePointsSchema,
   detectionRequestBodySchema,
   perspectiveRequestBodySchema,
@@ -75,6 +76,20 @@ test('server schemas reject missing and malformed values without defaults', () =
   ]));
   for (const invalidCoordinate of [NaN, Infinity, -Infinity]) {
     assert.throws(() => geminiBoundsSchema.parse({ ymin: 0, xmin: 0, ymax: 1, xmax: invalidCoordinate }));
+  }
+});
+
+test('Gemini JSON Schema is derived from the strict normalized bounds contract', () => {
+  assert.equal(geminiBoundsJsonSchema.type, 'object');
+  assert.equal(geminiBoundsJsonSchema.additionalProperties, false);
+  assert.deepEqual(
+    [...(geminiBoundsJsonSchema.required as string[])].sort(),
+    ['xmax', 'xmin', 'ymax', 'ymin'],
+  );
+  const properties = geminiBoundsJsonSchema.properties as Record<string, unknown>;
+  assert.deepEqual(Object.keys(properties).sort(), ['xmax', 'xmin', 'ymax', 'ymin']);
+  for (const coordinate of Object.values(properties)) {
+    assert.deepEqual(coordinate, { type: 'number', minimum: 0, maximum: 1 });
   }
 });
 

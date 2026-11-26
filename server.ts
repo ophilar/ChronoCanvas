@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { GoogleGenAI, Type } from '@google/genai';
+import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
 import express from 'express';
 import { getApps, initializeApp } from 'firebase-admin/app';
@@ -11,7 +11,9 @@ import firebaseConfig from './firebase-applet-config.json' with { type: 'json' }
 import { ComputerVisionService } from './src/server/computerVisionService';
 import {
   detectionRequestBodySchema,
+  geminiBoundsJsonSchema,
   geminiBoundsSchema,
+  type CanvasBounds,
   imageMimeTypeSchema,
   perspectiveRequestBodySchema,
 } from './src/server/schemas';
@@ -107,6 +109,7 @@ async function startServer(): Promise<void> {
         throw new Error('Image-source validation succeeded without an image.');
       }
 
+      let bounds: CanvasBounds;
       if (body.method === 'gemini') {
         const apiKey = process.env.GEMINI_API_KEY;
         const model = process.env.GEMINI_MODEL;
@@ -136,16 +139,7 @@ async function startServer(): Promise<void> {
             },
             config: {
               responseMimeType: 'application/json',
-              responseSchema: {
-                type: Type.OBJECT,
-                properties: {
-                  ymin: { type: Type.NUMBER },
-                  xmin: { type: Type.NUMBER },
-                  ymax: { type: Type.NUMBER },
-                  xmax: { type: Type.NUMBER },
-                },
-                required: ['ymin', 'xmin', 'ymax', 'xmax'],
-              },
+              responseJsonSchema: geminiBoundsJsonSchema,
             },
           });
         } catch (error) {
@@ -179,24 +173,11 @@ async function startServer(): Promise<void> {
           });
         }
 
-        const bounds = parsedResult.data;
-        const width = bounds.xmax - bounds.xmin;
-        const height = bounds.ymax - bounds.ymin;
-        response.json({
-          success: true,
-          bounds: {
-            ...bounds,
-            centerX: bounds.xmin + width / 2,
-            centerY: bounds.ymin + height / 2,
-            width,
-            height,
-          },
-          mode: 'gemini',
-        });
-        return;
+        bounds = parsedResult.data;
+      } else {
+        bounds = await computerVision.detectCanvasBounds(imageBuffer);
       }
 
-      const bounds = await computerVision.detectCanvasBounds(imageBuffer);
       const width = bounds.xmax - bounds.xmin;
       const height = bounds.ymax - bounds.ymin;
       response.json({
@@ -208,7 +189,7 @@ async function startServer(): Promise<void> {
           width,
           height,
         },
-        mode: 'opencv',
+        mode: body.method,
       });
     },
   );
